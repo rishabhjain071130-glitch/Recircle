@@ -84,10 +84,35 @@ test('analysis validates provider output, saves result without image, and scopes
   const otherToken = await register('Other User', 'other-scan@example.com');
   const history = await request(app).get('/api/v1/analysis/history').set('Authorization', `Bearer ${otherToken}`);
   assert.equal(history.status, 200);
-  assert.deepEqual(history.body.data, []);
+  assert.deepEqual(history.body.data.items, []);
+  assert.equal(history.body.data.pagination.total, 0);
   const ownHistory = await request(app).get('/api/v1/analysis/history').set('Authorization', `Bearer ${token}`);
-  assert.equal(ownHistory.body.data.length, 1);
+  assert.equal(ownHistory.body.data.items.length, 1);
+  assert.equal(ownHistory.body.data.items[0].id, response.body.data.analysisId);
+  const detail = await request(app).get(`/api/v1/analysis/history/${response.body.data.analysisId}`).set('Authorization', `Bearer ${token}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.data.itemName, 'Old laptop');
+  assert.equal((await request(app).get(`/api/v1/analysis/history/${response.body.data.analysisId}`).set('Authorization', `Bearer ${otherToken}`)).status, 404);
+  assert.equal((await request(app).get(`/api/v1/analysis/history/${response.body.data.analysisId}`)).status, 401);
+  assert.equal((await request(app).get('/api/v1/analysis/history/not-an-id').set('Authorization', `Bearer ${token}`)).status, 400);
   assert.equal((await request(app).get('/api/v1/analysis/history')).status, 401);
+});
+
+test('analysis history validates pagination and returns only the requested page', async () => {
+  const token = await register('History User', 'history@example.com');
+  for (let index = 0; index < 3; index += 1) {
+    await AnalysisRecord.create({ user: (await User.findOne({ email: 'history@example.com' })).id, result: { ...analysisFixture, itemName: `Item ${index}` } });
+  }
+  const first = await request(app).get('/api/v1/analysis/history?page=1&limit=2').set('Authorization', `Bearer ${token}`);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.data.items.length, 2);
+  assert.deepEqual(first.body.data.pagination, { page: 1, limit: 2, total: 3, totalPages: 2 });
+  const second = await request(app).get('/api/v1/analysis/history?page=2&limit=2').set('Authorization', `Bearer ${token}`);
+  assert.equal(second.body.data.items.length, 1);
+  assert.equal(second.body.data.items[0].itemName, 'Item 0');
+  assert.equal((await request(app).get('/api/v1/analysis/history?page=0').set('Authorization', `Bearer ${token}`)).status, 400);
+  assert.equal((await request(app).get('/api/v1/analysis/history?limit=51').set('Authorization', `Bearer ${token}`)).status, 400);
+  assert.equal((await request(app).get('/api/v1/analysis/history?extra=true').set('Authorization', `Bearer ${token}`)).status, 400);
 });
 
 test('malformed provider schema is returned as a sanitized error and is not saved', async () => {

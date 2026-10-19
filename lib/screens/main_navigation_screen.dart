@@ -5,6 +5,7 @@ import '../app/router.dart';
 import '../providers/app_state.dart';
 import '../features/scan/data/image_capture_service.dart';
 import 'ai_screen.dart';
+import 'analysis_history_screen.dart';
 import 'home_screen.dart';
 import 'impact_screen.dart';
 import 'pickups_screen.dart';
@@ -84,6 +85,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       ),
       PickupsScreen(appState: widget.appState),
       ImpactScreen(appState: widget.appState),
+      AnalysisHistoryScreen(appState: widget.appState),
       ProfileScreen(appState: widget.appState),
     ];
 
@@ -144,6 +146,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 icon: Icon(Icons.eco_outlined),
                 selectedIcon: Icon(Icons.eco),
                 label: 'Impact',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.history_outlined),
+                selectedIcon: Icon(Icons.history),
+                label: 'History',
               ),
               NavigationDestination(
                 icon: Icon(Icons.person_outline),

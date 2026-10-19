@@ -46,6 +46,12 @@ class ReCircleApi {
   Future<dynamic> patch(String path, Map<String, dynamic> body) =>
       _send('PATCH', path, body);
 
+  Future<dynamic> getAnalysisHistory({int page = 1, int limit = 20}) =>
+      get('/analysis/history?page=$page&limit=$limit');
+
+  Future<dynamic> getAnalysisDetail(String id) =>
+      get('/analysis/history/${Uri.encodeComponent(id)}');
+
   Future<dynamic> analyzeImage({
     required Uint8List image,
     required String mimeType,

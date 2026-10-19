@@ -14,6 +14,10 @@ const createSchema = z.object({
   pickup: z.object({ address: z.string().trim().min(5).max(500), contactName: z.string().trim().min(2).max(100), contactPhone: z.string().trim().min(5).max(30), preferredDate: z.string().max(40).optional(), preferredTime: z.string().max(60).optional(), notes: z.string().max(500).optional() }).strict(),
 }).strict();
 const statusSchema = z.object({ status: z.enum(['Collected', 'ReceivedForProcessing', 'Completed']), note: z.string().trim().max(500).optional() }).strict();
+const historyQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(1000000).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+}).strict();
 const imageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const categoryNames = ['plastic', 'paper', 'cardboard', 'glass', 'metal', 'electronics', 'textiles', 'mixedMaterials', 'unknown'];
 
@@ -85,8 +89,34 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
 
   router.get('/analysis/history', auth(config, 'customer'), async (req, res, next) => {
     try {
-      const records = await models.AnalysisRecord.find({ user: req.user.id }).sort({ createdAt: -1 }).limit(50).lean();
-      res.json({ success: true, data: records.map((record) => ({ id: record._id, ...record.result, analyzedAt: record.createdAt })) });
+      const query = validate(historyQuerySchema, req.query);
+      const filter = { user: req.user.id };
+      const [records, total] = await Promise.all([
+        models.AnalysisRecord.find(filter)
+          .sort({ createdAt: -1, _id: -1 })
+          .skip((query.page - 1) * query.limit)
+          .limit(query.limit)
+          .lean(),
+        models.AnalysisRecord.countDocuments(filter),
+      ]);
+      res.json({
+        success: true,
+        data: {
+          items: records.map((record) => ({ id: record._id.toString(), ...record.result, analyzedAt: record.createdAt })),
+          pagination: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) },
+        },
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/analysis/history/:id', auth(config, 'customer'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ success: false, error: { message: 'Invalid analysis ID' } });
+      }
+      const record = await models.AnalysisRecord.findOne({ _id: req.params.id, user: req.user.id }).lean();
+      if (!record) return res.status(404).json({ success: false, error: { message: 'Analysis not found' } });
+      res.json({ success: true, data: { id: record._id.toString(), ...record.result, analyzedAt: record.createdAt } });
     } catch (error) { next(error); }
   });
 

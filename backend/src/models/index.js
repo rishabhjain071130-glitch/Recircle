@@ -40,7 +40,7 @@ const pickupSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const analysisRecordSchema = new mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   result: { type: mongoose.Schema.Types.Mixed, required: true },
 }, { timestamps: true });
 analysisRecordSchema.index({ user: 1, createdAt: -1 });
