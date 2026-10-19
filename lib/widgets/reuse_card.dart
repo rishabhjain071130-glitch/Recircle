@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../models/reuse_idea.dart';
 import '../theme/app_theme.dart';
 
@@ -6,11 +7,7 @@ class ReuseCard extends StatelessWidget {
   final ReuseIdea idea;
   final VoidCallback onViewGuide;
 
-  const ReuseCard({
-    super.key,
-    required this.idea,
-    required this.onViewGuide,
-  });
+  const ReuseCard({super.key, required this.idea, required this.onViewGuide});
 
   IconData _getIconData(String name) {
     switch (name) {
@@ -40,10 +37,10 @@ class ReuseCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppTheme.pureWhite,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -85,11 +82,16 @@ class ReuseCard extends StatelessWidget {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: AppTheme.backgroundLight,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.3)),
+                          border: Border.all(
+                            color: AppTheme.primaryGreen.withValues(alpha: 0.3),
+                          ),
                         ),
                         child: Text(
                           idea.difficulty,
@@ -114,8 +116,10 @@ class ReuseCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    runSpacing: 4,
                     children: [
                       Row(
                         children: [
@@ -127,6 +131,7 @@ class ReuseCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Text(
                             idea.timeRequired,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 12,
                               color: AppTheme.subtitleGrey,
@@ -138,7 +143,10 @@ class ReuseCard extends StatelessWidget {
                         onPressed: onViewGuide,
                         style: TextButton.styleFrom(
                           foregroundColor: AppTheme.primaryGreen,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
@@ -149,10 +157,7 @@ class ReuseCard extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        label: const Icon(
-                          Icons.arrow_forward,
-                          size: 14,
-                        ),
+                        label: const Icon(Icons.arrow_forward, size: 14),
                       ),
                     ],
                   ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 
 class ActionCard extends StatelessWidget {
@@ -24,16 +25,16 @@ class ActionCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
-        splashColor: AppTheme.accentLightGreen.withOpacity(0.5),
-        highlightColor: AppTheme.accentLightGreen.withOpacity(0.2),
+        splashColor: AppTheme.accentLightGreen.withValues(alpha: 0.5),
+        highlightColor: AppTheme.accentLightGreen.withValues(alpha: 0.2),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.black.withOpacity(0.04)),
+            border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -49,11 +50,7 @@ class ActionCard extends StatelessWidget {
                   color: AppTheme.accentLightGreen,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(
-                  icon,
-                  color: AppTheme.primaryGreen,
-                  size: 24,
-                ),
+                child: Icon(icon, color: AppTheme.primaryGreen, size: 24),
               ),
               const SizedBox(height: 12),
               Text(

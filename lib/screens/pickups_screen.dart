@@ -1,30 +1,33 @@
 import 'package:flutter/material.dart';
+
 import '../models/pickup.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pickup_card.dart';
+import '../widgets/recircle_branding.dart';
 import 'pickup_booking_screen.dart';
 import 'pickup_tracking_screen.dart';
 
 class PickupsScreen extends StatefulWidget {
   final AppState appState;
 
-  const PickupsScreen({
-    super.key,
-    required this.appState,
-  });
+  const PickupsScreen({super.key, required this.appState});
 
   @override
   State<PickupsScreen> createState() => _PickupsScreenState();
 }
 
-class _PickupsScreenState extends State<PickupsScreen> with SingleTickerProviderStateMixin {
+class _PickupsScreenState extends State<PickupsScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    if (widget.appState.isAuthenticated) {
+      widget.appState.refreshRequests().catchError((_) {});
+    }
   }
 
   @override
@@ -41,8 +44,14 @@ class _PickupsScreenState extends State<PickupsScreen> with SingleTickerProvider
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Pickups'),
+        title: const ReCircleBrandTitle('My Pickups'),
         actions: [
+          IconButton(
+            onPressed: () =>
+                widget.appState.refreshRequests().catchError((_) {}),
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh requests',
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: ElevatedButton.icon(
@@ -50,15 +59,22 @@ class _PickupsScreenState extends State<PickupsScreen> with SingleTickerProvider
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => PickupBookingScreen(appState: widget.appState),
+                    builder: (context) =>
+                        PickupBookingScreen(appState: widget.appState),
                   ),
                 );
               },
               icon: const Icon(Icons.add, size: 18),
               label: const Text('Book New'),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -68,24 +84,57 @@ class _PickupsScreenState extends State<PickupsScreen> with SingleTickerProvider
           indicatorColor: AppTheme.primaryGreen,
           labelColor: AppTheme.primaryGreen,
           unselectedLabelColor: AppTheme.subtitleGrey,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
           tabs: [
             Tab(text: 'Active (${activePickups.length})'),
             Tab(text: 'Completed (${completedPickups.length})'),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildPickupList(activePickups, 'No active pickup requests', 'Book a pickup for your recyclable plastic or e-waste items.'),
-          _buildPickupList(completedPickups, 'No completed pickups yet', 'When your items are collected and recycled, they will appear here.'),
+          if (widget.appState.requestError != null)
+            MaterialBanner(
+              content: Text(widget.appState.requestError!),
+              actions: [
+                TextButton(
+                  onPressed: () =>
+                      widget.appState.refreshRequests().catchError((_) {}),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          if (widget.appState.loadingRequests) const LinearProgressIndicator(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildPickupList(
+                  activePickups,
+                  'No active pickup requests',
+                  'Submit an item and a collection partner can accept the request.',
+                ),
+                _buildPickupList(
+                  completedPickups,
+                  'No completed pickups yet',
+                  'Completed demo pickups will appear here.',
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildPickupList(List<Pickup> pickups, String emptyTitle, String emptySubtitle) {
+  Widget _buildPickupList(
+    List<Pickup> pickups,
+    String emptyTitle,
+    String emptySubtitle,
+  ) {
     if (pickups.isEmpty) {
       return Center(
         child: Padding(
@@ -129,7 +178,8 @@ class _PickupsScreenState extends State<PickupsScreen> with SingleTickerProvider
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => PickupBookingScreen(appState: widget.appState),
+                      builder: (context) =>
+                          PickupBookingScreen(appState: widget.appState),
                     ),
                   );
                 },

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../models/impact_stats.dart';
 import '../theme/app_theme.dart';
 
@@ -6,11 +7,7 @@ class ImpactCard extends StatelessWidget {
   final ImpactStats stats;
   final VoidCallback? onTap;
 
-  const ImpactCard({
-    super.key,
-    required this.stats,
-    this.onTap,
-  });
+  const ImpactCard({super.key, required this.stats, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -20,10 +17,10 @@ class ImpactCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppTheme.pureWhite,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 5),
           ),
@@ -39,16 +36,20 @@ class ImpactCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _ImpactMetric(
-                    icon: Icons.eco_outlined,
-                    value: '${stats.itemsReused}',
-                    label: 'Items Reused',
+                  Expanded(
+                    child: _ImpactMetric(
+                      icon: Icons.eco_outlined,
+                      value: '${stats.itemsReused}',
+                      label: 'Items Reused',
+                    ),
                   ),
                   _buildDivider(),
-                  _ImpactMetric(
-                    icon: Icons.recycling_outlined,
-                    value: '${stats.itemsRecycled}',
-                    label: 'Items Recycled',
+                  Expanded(
+                    child: _ImpactMetric(
+                      icon: Icons.recycling_outlined,
+                      value: '${stats.itemsRecycled}',
+                      label: 'Items Recycled',
+                    ),
                   ),
                 ],
               ),
@@ -58,16 +59,20 @@ class ImpactCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _ImpactMetric(
-                    icon: Icons.local_shipping_outlined,
-                    value: '${stats.pickupsCompleted}',
-                    label: 'Pickups',
+                  Expanded(
+                    child: _ImpactMetric(
+                      icon: Icons.local_shipping_outlined,
+                      value: '${stats.pickupsCompleted}',
+                      label: 'Pickups',
+                    ),
                   ),
                   _buildDivider(),
-                  _ImpactMetric(
-                    icon: Icons.stars_outlined,
-                    value: '${stats.rewardPoints}',
-                    label: 'Reward Points',
+                  Expanded(
+                    child: _ImpactMetric(
+                      icon: Icons.stars_outlined,
+                      value: '${stats.rewardPoints}',
+                      label: 'Reward Points',
+                    ),
                   ),
                 ],
               ),
@@ -82,7 +87,7 @@ class ImpactCard extends StatelessWidget {
     return Container(
       height: 35,
       width: 1,
-      color: Colors.grey.withOpacity(0.2),
+      color: Colors.grey.withValues(alpha: 0.2),
     );
   }
 }
@@ -108,11 +113,7 @@ class _ImpactMetric extends StatelessWidget {
             color: AppTheme.accentLightGreen,
             shape: BoxShape.circle,
           ),
-          child: Icon(
-            icon,
-            color: AppTheme.primaryGreen,
-            size: 20,
-          ),
+          child: Icon(icon, color: AppTheme.primaryGreen, size: 20),
         ),
         const SizedBox(height: 8),
         Text(
@@ -126,6 +127,9 @@ class _ImpactMetric extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           label,
+          maxLines: 2,
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: AppTheme.subtitleGrey,
             fontSize: 12,

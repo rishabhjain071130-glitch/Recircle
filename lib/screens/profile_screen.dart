@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
+
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/recircle_branding.dart';
 import 'rewards_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final AppState appState;
 
-  const ProfileScreen({
-    super.key,
-    required this.appState,
-  });
+  const ProfileScreen({super.key, required this.appState});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -120,7 +119,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Your Profile'),
+        title: const ReCircleBrandTitle('Your Profile'),
+        actions: [
+          IconButton(
+            onPressed: () => widget.appState.logout(),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Sign out',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -133,10 +139,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: Colors.black.withOpacity(0.04)),
+                border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
+                    color: Colors.black.withValues(alpha: 0.03),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -183,7 +189,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.location_on, size: 14, color: AppTheme.subtitleGrey),
+                      const Icon(
+                        Icons.location_on,
+                        size: 14,
+                        color: AppTheme.subtitleGrey,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         user.location,
@@ -200,7 +210,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     icon: const Icon(Icons.edit_outlined, size: 16),
                     label: const Text('Edit Profile'),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 8,
+                      ),
                       minimumSize: Size.zero,
                     ),
                   ),
@@ -229,11 +242,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _ProfileMenuItem(
                   icon: Icons.notifications_none_outlined,
                   title: 'Notifications',
-                  subtitle: 'Push & pickup updates enabled',
+                  subtitle: 'Notifications are not connected in this demo',
                   onTap: () {
                     _showInfoDialog(
                       'Notifications',
-                      'Notification preferences will be saved once backend connection is configured.',
+                      'Push notifications are not configured. Check your pickup list to refresh status updates.',
                     );
                   },
                 ),
@@ -248,13 +261,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _ProfileMenuItem(
                   icon: Icons.stars_outlined,
                   title: 'Rewards',
-                  subtitle: '${widget.appState.impactStats.rewardPoints} points available',
+                  subtitle:
+                      '${widget.appState.impactStats.rewardPoints} points available',
                   iconColor: Colors.amber,
                   onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => RewardsScreen(appState: widget.appState),
+                        builder: (context) =>
+                            RewardsScreen(appState: widget.appState),
                       ),
                     );
                   },
@@ -267,7 +282,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => RewardsScreen(appState: widget.appState),
+                        builder: (context) =>
+                            RewardsScreen(appState: widget.appState),
                       ),
                     );
                   },
@@ -349,11 +365,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
+        Material(
+          color: Colors.white,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.black.withOpacity(0.04)),
+            side: BorderSide(color: Colors.black.withValues(alpha: 0.04)),
           ),
           child: Column(
             children: items.asMap().entries.map((entry) {

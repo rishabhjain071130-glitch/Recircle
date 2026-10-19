@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 
 class SectionTitle extends StatelessWidget {
@@ -39,10 +40,7 @@ class SectionTitle extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             subtitle!,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppTheme.subtitleGrey,
-            ),
+            style: const TextStyle(fontSize: 14, color: AppTheme.subtitleGrey),
           ),
         ],
       ],

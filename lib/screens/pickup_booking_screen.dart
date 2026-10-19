@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/pickup.dart';
+
 import '../providers/app_state.dart';
+import 'pickup_tracking_screen.dart';
 import '../theme/app_theme.dart';
+import '../widgets/recircle_branding.dart';
+import '../features/requests/data/recircle_api.dart';
 
 class PickupBookingScreen extends StatefulWidget {
   final AppState appState;
@@ -26,6 +29,10 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
   late TextEditingController _quantityController;
   late TextEditingController _addressController;
   late TextEditingController _notesController;
+  late TextEditingController _phoneController;
+  String _condition = 'Working';
+  bool _submitting = false;
+  String? _submitError;
 
   String _selectedCategory = 'Plastic';
   String _selectedDate = 'Tomorrow';
@@ -39,11 +46,7 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
     'Other',
   ];
 
-  final List<String> _dates = [
-    'Today',
-    'Tomorrow',
-    'Day After Tomorrow',
-  ];
+  final List<String> _dates = ['Today', 'Tomorrow', 'Day After Tomorrow'];
 
   final List<String> _timeSlots = [
     '09:00 AM - 11:00 AM',
@@ -56,11 +59,15 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
   void initState() {
     super.initState();
     _itemController = TextEditingController(text: widget.initialItemName ?? '');
-    _quantityController = TextEditingController(text: '1.5 kg');
-    _addressController = TextEditingController(text: widget.appState.user.location);
+    _quantityController = TextEditingController(text: '1');
+    _addressController = TextEditingController(
+      text: widget.appState.user.location,
+    );
     _notesController = TextEditingController();
+    _phoneController = TextEditingController(text: widget.appState.user.phone);
 
-    if (widget.initialCategory != null && _categories.contains(widget.initialCategory)) {
+    if (widget.initialCategory != null &&
+        _categories.contains(widget.initialCategory)) {
       _selectedCategory = widget.initialCategory!;
     }
   }
@@ -71,26 +78,30 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
     _quantityController.dispose();
     _addressController.dispose();
     _notesController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
-  void _submitPickup() {
-    if (_formKey.currentState!.validate()) {
-      final newPickup = Pickup(
-        id: 'RC${1000 + widget.appState.pickups.length + 1}',
+  Future<void> _submitPickup() async {
+    if (_submitting || !_formKey.currentState!.validate()) return;
+    setState(() {
+      _submitting = true;
+      _submitError = null;
+    });
+    try {
+      final newPickup = await widget.appState.createRequest(
         itemName: _itemController.text.trim(),
         category: _selectedCategory,
-        quantity: _quantityController.text.trim(),
-        pickupAddress: _addressController.text.trim(),
+        condition: _condition,
+        quantity: int.parse(_quantityController.text.trim()),
+        address: _addressController.text.trim(),
+        contactName: widget.appState.user.name,
+        contactPhone: _phoneController.text.trim(),
+        notes: _notesController.text.trim(),
         preferredDate: _selectedDate,
         preferredTime: _selectedTime,
-        status: PickupStatus.booked,
-        createdAt: DateTime.now(),
-        notes: _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null,
       );
-
-      widget.appState.bookPickup(newPickup);
-
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -115,7 +126,7 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Pickup Request Created',
+                  'Request Submitted',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 20,
@@ -129,12 +140,9 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Your pickup request has been submitted successfully.',
+                  'Your request is saved. A collection partner can now review it.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.subtitleGrey,
-                  ),
+                  style: TextStyle(fontSize: 14, color: AppTheme.subtitleGrey),
                 ),
                 const SizedBox(height: 12),
                 Container(
@@ -143,13 +151,17 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
                     color: AppTheme.backgroundLight,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.info_outline, size: 18, color: AppTheme.primaryGreen),
+                      Icon(
+                        Icons.info_outline,
+                        size: 18,
+                        color: AppTheme.primaryGreen,
+                      ),
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Reward subject to applicable recycling rules and verification.',
+                          'Request ID: ${newPickup.id}',
                           style: TextStyle(
                             fontSize: 12,
                             color: AppTheme.darkText,
@@ -167,8 +179,15 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.pop(context); // Close dialog
-                    Navigator.pop(context); // Return from booking screen
+                    Navigator.of(context).pop(); // Close the confirmation.
+                    Navigator.of(this.context).pushReplacement(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PickupTrackingScreen(
+                          pickup: newPickup,
+                          appState: widget.appState,
+                        ),
+                      ),
+                    );
                   },
                   child: const Text('Track My Pickup'),
                 ),
@@ -177,15 +196,23 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
           );
         },
       );
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _submitError = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _submitError = 'Request was not submitted. Check the server connection and retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Book Recycling Pickup'),
-      ),
+      appBar: AppBar(title: const ReCircleBrandTitle('Book Recycling Pickup')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -203,11 +230,8 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Our partner will collect your recyclable items right from your doorstep.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.subtitleGrey,
-                ),
+                'Demo booking only. No collection partner is contacted and no pickup is scheduled.',
+                style: TextStyle(fontSize: 14, color: AppTheme.subtitleGrey),
               ),
               const SizedBox(height: 24),
 
@@ -216,10 +240,12 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
               const SizedBox(height: 8),
               TextFormField(
                 controller: _itemController,
-                decoration: _inputDecoration('e.g. Plastic Water Bottles, Old Electronics'),
+                decoration: _inputDecoration(
+                  'e.g. Plastic Water Bottles, Old Electronics',
+                ),
                 validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Please enter item name';
+                  if (val == null || val.trim().length < 2) {
+                    return 'Enter an item name with at least 2 characters';
                   }
                   return null;
                 },
@@ -241,13 +267,19 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
                     selectedColor: AppTheme.accentLightGreen,
                     backgroundColor: Colors.white,
                     labelStyle: TextStyle(
-                      color: isSelected ? AppTheme.primaryGreen : AppTheme.darkText,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isSelected
+                          ? AppTheme.primaryGreen
+                          : AppTheme.darkText,
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
                     ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                       side: BorderSide(
-                        color: isSelected ? AppTheme.primaryGreen : Colors.grey.shade300,
+                        color: isSelected
+                            ? AppTheme.primaryGreen
+                            : Colors.grey.shade300,
                       ),
                     ),
                     onSelected: (selected) {
@@ -268,19 +300,47 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
               const SizedBox(height: 8),
               TextFormField(
                 controller: _quantityController,
-                decoration: _inputDecoration('e.g. 2.5 kg or 5 pieces'),
+                keyboardType: TextInputType.number,
+                decoration: _inputDecoration('Number of items'),
                 validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Please enter quantity';
+                  final quantity = int.tryParse(val?.trim() ?? '');
+                  if (quantity == null || quantity < 1 || quantity > 999) {
+                    return 'Enter a whole number from 1 to 999';
                   }
                   return null;
                 },
               ),
 
               const SizedBox(height: 20),
+              _buildStepHeader('4', 'Item Condition'),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _condition,
+                isExpanded: true,
+                decoration: _inputDecoration('Select condition'),
+                items:
+                    const [
+                          'Working',
+                          'Partially working',
+                          'Not working',
+                          'Damaged',
+                        ]
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _condition = value);
+                },
+              ),
+
+              const SizedBox(height: 20),
 
               // Step 4: Pickup Address
-              _buildStepHeader('4', 'Pickup Address'),
+              _buildStepHeader('5', 'Pickup Address'),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _addressController,
@@ -294,38 +354,46 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
                 },
               ),
 
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: _inputDecoration('Contact phone number'),
+                validator: (val) => (val?.trim().length ?? 0) < 5
+                    ? 'Enter a contact phone number'
+                    : null,
+              ),
+
               const SizedBox(height: 20),
 
               // Step 5: Preferred Date
-              _buildStepHeader('5', 'Preferred Date'),
+              _buildStepHeader('6', 'Preferred Date'),
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: _dates.map((date) {
                   final isSelected = date == _selectedDate;
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: OutlinedButton(
-                        onPressed: () {
-                          setState(() {
-                            _selectedDate = date;
-                          });
-                        },
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: isSelected ? AppTheme.accentLightGreen : Colors.white,
-                          side: BorderSide(
-                            color: isSelected ? AppTheme.primaryGreen : Colors.grey.shade300,
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: Text(
-                          date,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? AppTheme.primaryGreen : AppTheme.darkText,
-                          ),
-                        ),
+                  return ChoiceChip(
+                    label: Text(date),
+                    selected: isSelected,
+                    onSelected: (_) => setState(() => _selectedDate = date),
+                    selectedColor: AppTheme.accentLightGreen,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                      color: isSelected
+                          ? AppTheme.primaryGreen
+                          : AppTheme.darkText,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: isSelected
+                            ? AppTheme.primaryGreen
+                            : Colors.grey.shade300,
                       ),
                     ),
                   );
@@ -335,15 +403,20 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
               const SizedBox(height: 20),
 
               // Step 6: Preferred Time
-              _buildStepHeader('6', 'Preferred Time Slot'),
+              _buildStepHeader('7', 'Preferred Time Slot'),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: _selectedTime,
+                initialValue: _selectedTime,
+                isExpanded: true,
                 decoration: _inputDecoration('Select Time'),
                 items: _timeSlots.map((time) {
                   return DropdownMenuItem(
                     value: time,
-                    child: Text(time),
+                    child: Text(
+                      time,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   );
                 }).toList(),
                 onChanged: (val) {
@@ -369,7 +442,9 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
               const SizedBox(height: 8),
               TextFormField(
                 controller: _notesController,
-                decoration: _inputDecoration('e.g. Ring doorbell, leave at gate'),
+                decoration: _inputDecoration(
+                  'e.g. Ring doorbell, leave at gate',
+                ),
                 maxLines: 2,
               ),
 
@@ -380,11 +455,17 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton.icon(
-                  onPressed: _submitPickup,
+                  onPressed: _submitting ? null : _submitPickup,
                   icon: const Icon(Icons.check_circle),
-                  label: const Text('Confirm Pickup'),
+                  label: _submitting
+                      ? const Text('Submitting…')
+                      : const Text('Submit Request'),
                 ),
               ),
+              if (_submitError != null) ...[
+                const SizedBox(height: 12),
+                Text(_submitError!, style: const TextStyle(color: Colors.red)),
+              ],
               const SizedBox(height: 20),
             ],
           ),
@@ -415,12 +496,16 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: AppTheme.darkText,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.darkText,
+            ),
           ),
         ),
       ],

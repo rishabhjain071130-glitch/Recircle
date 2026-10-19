@@ -1,453 +1,553 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import '../models/recycling_item.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../core/widgets/app_state_view.dart';
+import '../features/analysis/data/backend_item_analysis_service.dart';
+import '../features/analysis/data/item_analysis_service.dart';
+import '../features/requests/data/recircle_api.dart';
+import '../features/scan/data/image_capture_service.dart';
+import '../models/item_analysis_result.dart';
+import '../models/item_category.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/reuse_card.dart';
+import '../widgets/recircle_branding.dart';
 import 'pickup_booking_screen.dart';
 import 'reuse_detail_screen.dart';
 
 class AIScreen extends StatefulWidget {
-  final AppState appState;
-  final String? initialActionMode; // 'camera' or 'gallery' or null
-
   const AIScreen({
     super.key,
     required this.appState,
     this.initialActionMode,
+    this.initialImage,
+    this.initialError,
+    this.imageCaptureService,
+    this.analysisService,
   });
+
+  final AppState appState;
+  final String? initialActionMode;
+  final XFile? initialImage;
+  final String? initialError;
+  final ImageCaptureService? imageCaptureService;
+  final ItemAnalysisService? analysisService;
 
   @override
   State<AIScreen> createState() => _AIScreenState();
 }
 
 class _AIScreenState extends State<AIScreen> {
-  RecyclingItem? _selectedItem;
-  bool _isAnalyzing = false;
-  String? _modeUsed;
+  late final ImageCaptureService _imageCapture =
+      widget.imageCaptureService ?? PlatformImageCaptureService();
+  late final ItemAnalysisService _analysisService =
+      widget.analysisService ?? BackendItemAnalysisService(widget.appState.api);
+
+  XFile? _image;
+  ItemAnalysisResult? _result;
+  String? _error;
+  bool _isBusy = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialActionMode != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _simulateScan(widget.initialActionMode == 'camera' ? 'Camera' : 'Gallery', RecyclingItem.sampleItems.first);
+    _image = widget.initialImage;
+    _error = widget.initialError;
+    _handleInitialAction(widget.initialActionMode);
+  }
+
+  @override
+  void didUpdateWidget(covariant AIScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialImage != oldWidget.initialImage &&
+        widget.initialImage != null) {
+      _image = widget.initialImage;
+      _result = null;
+      _error = widget.initialError;
+      _isBusy = false;
+    }
+    if (widget.initialError != oldWidget.initialError &&
+        widget.initialError != null) {
+      _error = widget.initialError;
+      _image = null;
+      _result = null;
+      _isBusy = false;
+    }
+    if (widget.initialActionMode != oldWidget.initialActionMode &&
+        widget.initialActionMode != null) {
+      _handleInitialAction(widget.initialActionMode);
+    }
+  }
+
+  void _handleInitialAction(String? mode) {
+    if (mode == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _chooseImage(
+        mode == 'gallery' ? ImageSource.gallery : ImageSource.camera,
+      );
+    });
+  }
+
+  Future<void> _chooseImage(ImageSource source) async {
+    setState(() {
+      _isBusy = true;
+      _error = null;
+      _result = null;
+      _image = null;
+    });
+
+    try {
+      final image = await _imageCapture.captureOrChoose(source);
+      if (!mounted) return;
+      if (image == null) {
+        setState(() => _isBusy = false);
+        return;
+      }
+      setState(() => _image = image);
+      setState(() => _isBusy = false);
+    } on ImageSelectionException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isBusy = false;
+        _error = error.message;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isBusy = false;
+        _error = 'We could not open that image. Try another photo or choose a different source.';
       });
     }
   }
 
-  void _simulateScan(String sourceName, RecyclingItem item) {
+  Future<void> _analyze(XFile image, {ItemCategory? category}) async {
     setState(() {
-      _isAnalyzing = true;
-      _modeUsed = sourceName;
+      _isBusy = true;
+      _error = null;
+      _result = null;
     });
-
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) {
-        setState(() {
-          _isAnalyzing = false;
-          _selectedItem = item;
-        });
-      }
-    });
+    try {
+      final result = await _analysisService.analyze(
+        image: image,
+        manualCategory: category,
+      );
+      if (!mounted) return;
+      setState(() {
+        _result = result;
+        _isBusy = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isBusy = false;
+        _error = error is ApiException
+            ? error.message
+            : 'Analysis did not finish. Retry with this image.';
+      });
+    }
   }
 
-  void _resetScan() {
-    setState(() {
-      _selectedItem = null;
-      _modeUsed = null;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sampleItems = RecyclingItem.sampleItems;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ReCircle AI'),
-        actions: [
-          if (_selectedItem != null)
-            TextButton.icon(
-              onPressed: _resetScan,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('New Scan'),
-            ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Future<void> _chooseCategoryManually() async {
+    final category = await showModalBottomSheet<ItemCategory>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
           children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.accentLightGreen,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.auto_awesome,
-                    color: AppTheme.primaryGreen,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
-                        'ReCircle AI',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.darkText,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Discover what your unwanted items can become.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.subtitleGrey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            const ListTile(
+              title: Text('Choose a category'),
+              subtitle: Text(
+                'Use this correction and ask the analyzer to review the photo again.',
+              ),
             ),
-
-            const SizedBox(height: 20),
-
-            // Scanning Box or Result View
-            if (_isAnalyzing)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(40),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.3)),
-                ),
-                child: Column(
-                  children: [
-                    const CircularProgressIndicator(
-                      color: AppTheme.primaryGreen,
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Analyzing item via $_modeUsed...',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.darkText,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Identifying material & calculating reuse possibilities',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.subtitleGrey,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else if (_selectedItem == null) ...[
-              // Upload / Scan Drop Area
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: AppTheme.primaryGreen.withOpacity(0.4),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: const BoxDecoration(
-                        color: AppTheme.accentLightGreen,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.center_focus_strong,
-                        color: AppTheme.primaryGreen,
-                        size: 40,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Scan or Upload an Item',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.darkText,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Take a picture or select an existing photo to analyze recycling or reuse options.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.subtitleGrey,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              _simulateScan('Camera', sampleItems.first);
-                            },
-                            icon: const Icon(Icons.camera_alt),
-                            label: const Text('Use Camera'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              _simulateScan('Gallery', sampleItems.first);
-                            },
-                            icon: const Icon(Icons.photo_library),
-                            label: const Text('From Gallery'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+            for (final category in ItemCategory.values.where(
+              (category) => category != ItemCategory.unknown,
+            ))
+              ListTile(
+                leading: const Icon(Icons.category_outlined),
+                title: Text(category.label),
+                onTap: () => Navigator.pop(context, category),
               ),
-
-              const SizedBox(height: 24),
-
-              // Demo quick items picker
-              const Text(
-                'Or try with sample items:',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.darkText,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: sampleItems.length,
-                itemBuilder: (context, index) {
-                  final item = sampleItems[index];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.black.withOpacity(0.04)),
-                    ),
-                    child: ListTile(
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.accentLightGreen,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.category, color: AppTheme.primaryGreen),
-                      ),
-                      title: Text(
-                        item.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.darkText,
-                        ),
-                      ),
-                      subtitle: Text(
-                        'Category: ${item.category} • ${item.reuseIdeas.length} ideas',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      trailing: const Icon(Icons.chevron_right, color: AppTheme.primaryGreen),
-                      onTap: () {
-                        _simulateScan('Demo Selector', item);
-                      },
-                    ),
-                  );
-                },
-              ),
-            ] else ...[
-              // AI Result Section
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: AppTheme.accentLightGreen.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: const BoxDecoration(
-                        color: AppTheme.primaryGreen,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_circle_outline,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Item Identified',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.primaryGreen,
-                            ),
-                          ),
-                          Text(
-                            _selectedItem!.name,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.darkText,
-                            ),
-                          ),
-                          Text(
-                            'Category: ${_selectedItem!.category}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.subtitleGrey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              const Text(
-                "Here's what you can do with it:",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.darkText,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Explore upcycling DIY guides or book a pickup for recycling.',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.subtitleGrey,
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // List of Reuse Cards
-              ..._selectedItem!.reuseIdeas.map((idea) {
-                return ReuseCard(
-                  idea: idea,
-                  onViewGuide: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ReuseDetailScreen(
-                          idea: idea,
-                          appState: widget.appState,
-                        ),
-                      ),
-                    );
-                  },
-                );
-              }).toList(),
-
-              const SizedBox(height: 16),
-
-              // Recycle Instead Card / Option
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Not suitable for reuse?',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.darkText,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'If the item is broken or worn out, send it directly for safe recycling.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.subtitleGrey,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => PickupBookingScreen(
-                                appState: widget.appState,
-                                initialItemName: _selectedItem!.name,
-                                initialCategory: _selectedItem!.category,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.local_shipping_outlined),
-                        label: const Text('Recycle Instead'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 20),
           ],
         ),
       ),
     );
+    if (category != null && _image != null) {
+      await _analyze(_image!, category: category);
+    }
   }
+
+  void _reset() {
+    setState(() {
+      _image = null;
+      _result = null;
+      _error = null;
+      _isBusy = false;
+    });
+  }
+
+  void _openReuseGuide(int index) {
+    final result = _result;
+    if (result == null || result.reuseSuggestions.isEmpty) return;
+    final idea = result.reuseSuggestions[index];
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            ReuseDetailScreen(idea: idea, appState: widget.appState),
+      ),
+    );
+  }
+
+  void _openPickup() {
+    final result = _result;
+    if (result == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PickupBookingScreen(
+          appState: widget.appState,
+          initialItemName: result.itemName,
+          initialCategory: switch (result.category) {
+            ItemCategory.plastic => 'Plastic',
+            ItemCategory.paper || ItemCategory.cardboard => 'Paper',
+            ItemCategory.glass => 'Other',
+            ItemCategory.metal => 'Metal',
+            ItemCategory.electronics => 'E-Waste',
+            ItemCategory.textiles ||
+            ItemCategory.mixedMaterials ||
+            ItemCategory.unknown => 'Other',
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    return Scaffold(
+      appBar: AppBar(
+        title: const ReCircleBrandTitle('Scan an Item'),
+        actions: [
+          if (_image != null)
+            TextButton(onPressed: _reset, child: const Text('New scan')),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Give your item a second chance.',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: AppTheme.darkText,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Take a photo or choose one from your gallery. ReCircle will analyze visible details and suggest reuse first.',
+                style: TextStyle(color: AppTheme.subtitleGrey),
+              ),
+              const SizedBox(height: 18),
+              if (_image == null) _buildPickerCard(),
+              if (_image != null) _buildImagePreview(_image!),
+              if (_image != null && result == null && !_isBusy) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _analyze(_image!),
+                    icon: const Icon(Icons.auto_awesome_outlined),
+                    label: const Text('Analyze Item'),
+                  ),
+                ),
+              ],
+              if (_isBusy) ...[
+                const SizedBox(height: 16),
+                const AppLoadingView(message: 'Analyzing your item…'),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 16),
+                AppMessageView(
+                  title: _error!.contains('declined')
+                      ? 'Permission denied'
+                      : 'Could not use this image',
+                  message: _error!,
+                  icon: _error!.contains('declined')
+                      ? Icons.no_photography_outlined
+                      : Icons.warning_amber_outlined,
+                  actionLabel: _image == null
+                      ? 'Choose from gallery'
+                      : 'Retry analysis',
+                  action: _image == null
+                      ? () => _chooseImage(ImageSource.gallery)
+                      : () => _analyze(_image!),
+                ),
+              ],
+              if (result != null) ...[
+                const SizedBox(height: 16),
+                _buildResult(result),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPickerCard() => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: AppTheme.pureWhite,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: AppTheme.borderGrey),
+    ),
+    child: Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            color: AppTheme.accentLightGreen,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.center_focus_strong,
+            color: AppTheme.primaryGreen,
+            size: 34,
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'What would you like help with?',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Take a photo or choose one from your gallery.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppTheme.subtitleGrey),
+        ),
+        const SizedBox(height: 18),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _isBusy ? null : () => _chooseImage(ImageSource.camera),
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: const Text('Take Photo'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _isBusy ? null : () => _chooseImage(ImageSource.gallery),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text('Choose from Gallery'),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildImagePreview(XFile image) => ClipRRect(
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      constraints: const BoxConstraints(maxHeight: 280),
+      color: AppTheme.accentLightGreen,
+      child: Image.file(
+        File(image.path),
+        width: double.infinity,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => const AppMessageView(
+          title: 'Preview unavailable',
+          message: 'The selected image could not be displayed. Choose another image.',
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildResult(ItemAnalysisResult result) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.accentLightGreen,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.science_outlined,
+                  color: AppTheme.primaryGreen,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    result.analysisKind == AnalysisKind.mock
+                        ? 'Sample analysis · demo data'
+                        : 'Analysis result',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (result.analysisKind == AnalysisKind.mock)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'Image contents are not interpreted by a real AI model yet.',
+                  style: TextStyle(color: AppTheme.subtitleGrey, fontSize: 12),
+                ),
+              ),
+            Text(
+              result.itemName,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            _detailRow('Category', result.category.label),
+            _detailRow(
+              'Likely materials',
+              result.likelyMaterials.isEmpty
+                  ? result.material
+                  : result.likelyMaterials.join(', '),
+            ),
+            _detailRow(
+              'Confidence',
+              result.confidence == null
+                  ? 'Category chosen manually'
+                  : '${(result.confidence! * 100).round()}% · visual estimate',
+            ),
+            _detailRow(
+              'Visible condition',
+              result.visibleCondition ??
+                  switch (result.condition) {
+                    ItemCondition.reusable =>
+                      'Reusable appearance; function not verified',
+                    ItemCondition.damaged => 'Visible damage',
+                    ItemCondition.unknown => 'Unclear from this photo',
+                    ItemCondition.notAssessed => 'Not assessed',
+                  },
+            ),
+            const SizedBox(height: 8),
+            Text(result.explanation, style: const TextStyle(fontSize: 12)),
+            if (result.uncertaintyNotes.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              const Text(
+                'Uncertainty',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              for (final note in result.uncertaintyNotes) Text('• $note'),
+            ],
+            if (result.safetyNotes.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              const Text(
+                'Safety notes',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              for (final note in result.safetyNotes) Text('• $note'),
+            ],
+          ],
+        ),
+      ),
+      if (result.needsManualCategory) ...[
+        const SizedBox(height: 12),
+        AppMessageView(
+          title: "I'm not sure what this item is",
+          message: 'If the category looks wrong, select the closest match and retry.',
+          icon: Icons.help_outline,
+          actionLabel: 'Choose Category Manually',
+          action: _chooseCategoryManually,
+        ),
+      ],
+      const SizedBox(height: 16),
+      Text(
+        result.reusable ? 'Reuse First' : 'Recycling may be the better option',
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          color: AppTheme.primaryGreen,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        result.reusable
+            ? 'Reuse may be practical based on visible details. Check the item’s actual function and safety before reuse.'
+            : result.recyclingRecommendation,
+      ),
+      if (result.reuseSuggestions.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        const Text(
+          'Reuse ideas',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        for (var index = 0; index < result.reuseSuggestions.length; index++)
+          ReuseCard(
+            idea: result.reuseSuggestions[index],
+            onViewGuide: () => _openReuseGuide(index),
+          ),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => _openReuseGuide(0),
+            icon: const Icon(Icons.eco_outlined),
+            label: const Text('Use a Reuse Idea'),
+          ),
+        ),
+      ],
+      const SizedBox(height: 10),
+      SizedBox(
+        width: double.infinity,
+        child: result.reusable
+            ? OutlinedButton.icon(
+                onPressed: _openPickup,
+                icon: const Icon(Icons.recycling_outlined),
+                label: const Text('Recycle Instead'),
+              )
+            : ElevatedButton.icon(
+                onPressed: _openPickup,
+                icon: const Icon(Icons.local_shipping_outlined),
+                label: const Text('Explore Pickup Options'),
+              ),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        result.analysisKind == AnalysisKind.mock
+            ? 'Sample suggestions only; the image was not interpreted by AI.'
+            : 'Visual estimates can be wrong. Confirm item function and local recycling guidance before acting.',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 11, color: AppTheme.subtitleGrey),
+      ),
+    ],
+  );
+
+  Widget _detailRow(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 94,
+          child: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        Expanded(child: Text(value)),
+      ],
+    ),
+  );
 }

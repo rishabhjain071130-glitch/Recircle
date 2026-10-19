@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
+
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/impact_card.dart';
+import '../widgets/recircle_branding.dart';
 import 'rewards_screen.dart';
 
 class ImpactScreen extends StatelessWidget {
   final AppState appState;
 
-  const ImpactScreen({
-    super.key,
-    required this.appState,
-  });
+  const ImpactScreen({super.key, required this.appState});
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +17,7 @@ class ImpactScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Impact'),
+        title: const ReCircleBrandTitle('My Impact'),
         actions: [
           IconButton(
             onPressed: () {
@@ -82,6 +81,19 @@ class ImpactScreen extends StatelessWidget {
               ],
             ),
 
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.accentLightGreen,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                'Demo totals · not measured or independently verified',
+                style: TextStyle(fontSize: 12, color: AppTheme.darkText),
+              ),
+            ),
+
             const SizedBox(height: 20),
 
             // Main Impact Numbers Card
@@ -106,10 +118,10 @@ class ImpactScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.black.withOpacity(0.04)),
+                border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
+                    color: Colors.black.withValues(alpha: 0.03),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -150,7 +162,9 @@ class ImpactScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 color: AppTheme.accentLightGreen,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.2)),
+                border: Border.all(
+                  color: AppTheme.primaryGreen.withValues(alpha: 0.2),
+                ),
               ),
               child: Row(
                 children: [
@@ -204,11 +218,27 @@ class ImpactScreen extends StatelessWidget {
 
   Widget _buildJourneyGraphic() {
     final stages = [
-      {'title': 'IDENTIFY', 'icon': Icons.center_focus_strong, 'desc': 'Scan unwanted item'},
+      {
+        'title': 'IDENTIFY',
+        'icon': Icons.center_focus_strong,
+        'desc': 'Scan unwanted item',
+      },
       {'title': 'REUSE', 'icon': Icons.eco, 'desc': 'Upcycle with DIY guide'},
-      {'title': 'RECYCLE', 'icon': Icons.recycling, 'desc': 'Book pickup request'},
-      {'title': 'COLLECT', 'icon': Icons.local_shipping, 'desc': 'Partner doorstep pickup'},
-      {'title': 'PROCESS', 'icon': Icons.factory, 'desc': 'Material sorting & processing'},
+      {
+        'title': 'RECYCLE',
+        'icon': Icons.recycling,
+        'desc': 'Book pickup request',
+      },
+      {
+        'title': 'COLLECT',
+        'icon': Icons.local_shipping,
+        'desc': 'Partner doorstep pickup',
+      },
+      {
+        'title': 'PROCESS',
+        'icon': Icons.factory,
+        'desc': 'Material sorting & processing',
+      },
     ];
 
     return Column(
@@ -227,7 +257,9 @@ class ImpactScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: AppTheme.accentLightGreen,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.3)),
+                    border: Border.all(
+                      color: AppTheme.primaryGreen.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Icon(
                     stage['icon'] as IconData,
@@ -284,7 +316,7 @@ class ImpactScreen extends StatelessWidget {
                     Container(
                       width: 2,
                       height: 20,
-                      color: AppTheme.primaryGreen.withOpacity(0.4),
+                      color: AppTheme.primaryGreen.withValues(alpha: 0.4),
                     ),
                   ],
                 ),

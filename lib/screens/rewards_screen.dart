@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
+
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/recircle_branding.dart';
 
 class RewardsScreen extends StatelessWidget {
   final AppState appState;
 
-  const RewardsScreen({
-    super.key,
-    required this.appState,
-  });
+  const RewardsScreen({super.key, required this.appState});
 
   @override
   Widget build(BuildContext context) {
@@ -16,31 +15,42 @@ class RewardsScreen extends StatelessWidget {
     final activities = appState.rewardActivities;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Rewards'),
-      ),
+      appBar: AppBar(title: const ReCircleBrandTitle('My Rewards')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.accentLightGreen,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Demo points · not real or verified rewards',
+                style: TextStyle(
+                  color: AppTheme.darkText,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             // Points Balance Card
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [
-                    AppTheme.primaryGreen,
-                    Color(0xFF1B6A3E),
-                  ],
+                  colors: [AppTheme.primaryGreen, Color(0xFF1B6A3E)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
-                    color: AppTheme.primaryGreen.withOpacity(0.3),
+                    color: AppTheme.primaryGreen.withValues(alpha: 0.3),
                     blurRadius: 12,
                     offset: const Offset(0, 6),
                   ),
@@ -48,11 +58,7 @@ class RewardsScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  const Icon(
-                    Icons.stars,
-                    color: Colors.amber,
-                    size: 44,
-                  ),
+                  const Icon(Icons.stars, color: Colors.amber, size: 44),
                   const SizedBox(height: 8),
                   const Text(
                     'Reward Points',
@@ -73,9 +79,12 @@ class RewardsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
+                      color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
@@ -97,9 +106,11 @@ class RewardsScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppTheme.accentLightGreen.withOpacity(0.6),
+                color: AppTheme.accentLightGreen.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.2)),
+                border: Border.all(
+                  color: AppTheme.primaryGreen.withValues(alpha: 0.2),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -147,7 +158,9 @@ class RewardsScreen extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.04),
+                  ),
                 ),
                 child: Column(
                   children: const [
@@ -186,7 +199,9 @@ class RewardsScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.black.withOpacity(0.04)),
+                      border: Border.all(
+                        color: Colors.black.withValues(alpha: 0.04),
+                      ),
                     ),
                     child: Row(
                       children: [

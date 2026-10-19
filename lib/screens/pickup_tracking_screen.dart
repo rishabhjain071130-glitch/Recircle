@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../models/pickup.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/recircle_branding.dart';
 
 class PickupTrackingScreen extends StatefulWidget {
   final Pickup pickup;
@@ -26,23 +28,27 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
     _currentPickup = widget.pickup;
   }
 
-  void _advanceDemoStatus() {
-    widget.appState.advancePickupStatus(_currentPickup.id);
-    final updated = widget.appState.pickups.firstWhere(
-      (p) => p.id == _currentPickup.id,
-      orElse: () => _currentPickup,
-    );
-    setState(() {
-      _currentPickup = updated;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Status updated to: ${_currentPickup.status.displayName}'),
-        backgroundColor: AppTheme.primaryGreen,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  Future<void> _refresh() async {
+    try {
+      await widget.appState.refreshRequests();
+      if (!mounted) return;
+      setState(() {
+        _currentPickup = widget.appState.pickups.firstWhere(
+          (pickup) => pickup.id == _currentPickup.id,
+          orElse: () => _currentPickup,
+        );
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              widget.appState.requestError ?? 'Could not refresh request.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -51,7 +57,14 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Pickup #${_currentPickup.id}'),
+        title: ReCircleBrandTitle('Request #${_currentPickup.id}'),
+        actions: [
+          IconButton(
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh status',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -65,10 +78,10 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
               decoration: BoxDecoration(
                 color: AppTheme.pureWhite,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.black.withOpacity(0.04)),
+                border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
+                    color: Colors.black.withValues(alpha: 0.03),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -77,42 +90,88 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final itemName = Text(
                         _currentPickup.itemName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: AppTheme.darkText,
                         ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      );
+                      final status = Container(
+                        constraints: const BoxConstraints(maxWidth: 150),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: AppTheme.accentLightGreen,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
                           _currentPickup.status.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: AppTheme.primaryGreen,
                           ),
                         ),
-                      ),
-                    ],
+                      );
+                      if (constraints.maxWidth < 350) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            itemName,
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: status,
+                            ),
+                          ],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          Expanded(child: itemName),
+                          const SizedBox(width: 8),
+                          status,
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
                   const Divider(height: 1),
                   const SizedBox(height: 12),
-                  _buildDetailRow(Icons.category_outlined, 'Category', _currentPickup.category),
+                  _buildDetailRow(
+                    Icons.category_outlined,
+                    'Category',
+                    _currentPickup.category,
+                  ),
                   const SizedBox(height: 8),
-                  _buildDetailRow(Icons.scale_outlined, 'Quantity', _currentPickup.quantity),
+                  _buildDetailRow(
+                    Icons.scale_outlined,
+                    'Quantity',
+                    _currentPickup.quantity,
+                  ),
                   const SizedBox(height: 8),
-                  _buildDetailRow(Icons.location_on_outlined, 'Pickup Address', _currentPickup.pickupAddress),
+                  _buildDetailRow(
+                    Icons.location_on_outlined,
+                    'Pickup Address',
+                    _currentPickup.pickupAddress,
+                  ),
+                  if (_currentPickup.partnerName != null) ...[
+                    const SizedBox(height: 8),
+                    _buildDetailRow(
+                      Icons.verified_user_outlined,
+                      'Collection Partner',
+                      _currentPickup.partnerName!,
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   _buildDetailRow(
                     Icons.calendar_today_outlined,
@@ -121,51 +180,17 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
                   ),
                   if (_currentPickup.notes != null) ...[
                     const SizedBox(height: 8),
-                    _buildDetailRow(Icons.note_outlined, 'Notes', _currentPickup.notes!),
+                    _buildDetailRow(
+                      Icons.note_outlined,
+                      'Notes',
+                      _currentPickup.notes!,
+                    ),
                   ],
                 ],
               ),
             ),
 
             const SizedBox(height: 24),
-
-            // Demo Action Bar
-            if (_currentPickup.status != PickupStatus.completed) ...[
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppTheme.accentLightGreen.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.primaryGreen.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.touch_app_outlined, color: AppTheme.primaryGreen),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Demo Workflow: Advance status to simulate live collection partner updates.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.darkText,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _advanceDemoStatus,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        textStyle: const TextStyle(fontSize: 12),
-                      ),
-                      child: const Text('Next Step'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
 
             // Timeline Header
             const Text(
@@ -196,20 +221,26 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
                           width: 24,
                           height: 24,
                           decoration: BoxDecoration(
-                            color: item.isCompleted ? AppTheme.primaryGreen : Colors.grey.shade300,
+                            color: item.isCompleted
+                                ? AppTheme.primaryGreen
+                                : Colors.grey.shade300,
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
                             item.isCompleted ? Icons.check : Icons.circle,
                             size: 14,
-                            color: item.isCompleted ? Colors.white : Colors.grey.shade500,
+                            color: item.isCompleted
+                                ? Colors.white
+                                : Colors.grey.shade500,
                           ),
                         ),
                         if (!isLast)
                           Container(
                             width: 2,
                             height: 48,
-                            color: item.isCompleted ? AppTheme.primaryGreen : Colors.grey.shade300,
+                            color: item.isCompleted
+                                ? AppTheme.primaryGreen
+                                : Colors.grey.shade300,
                           ),
                       ],
                     ),
@@ -225,7 +256,9 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
-                                color: item.isCompleted ? AppTheme.darkText : Colors.grey.shade600,
+                                color: item.isCompleted
+                                    ? AppTheme.darkText
+                                    : Colors.grey.shade600,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -233,7 +266,9 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
                               item.description,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: item.isCompleted ? AppTheme.subtitleGrey : Colors.grey.shade400,
+                                color: item.isCompleted
+                                    ? AppTheme.subtitleGrey
+                                    : Colors.grey.shade400,
                               ),
                             ),
                           ],
@@ -260,10 +295,7 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
           width: 110,
           child: Text(
             label,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppTheme.subtitleGrey,
-            ),
+            style: const TextStyle(fontSize: 13, color: AppTheme.subtitleGrey),
           ),
         ),
         Expanded(

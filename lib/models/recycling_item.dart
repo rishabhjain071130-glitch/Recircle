@@ -8,6 +8,28 @@ class RecyclingItem {
   final String iconName;
   final List<ReuseIdea> reuseIdeas;
 
+  bool get canBeReused => reuseIdeas.isNotEmpty;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'category': category,
+    'description': description,
+    'iconName': iconName,
+    'reuseIdeas': reuseIdeas.map((idea) => idea.toJson()).toList(),
+  };
+
+  factory RecyclingItem.fromJson(Map<String, Object?> json) => RecyclingItem(
+    id: json['id']! as String,
+    name: json['name']! as String,
+    category: json['category']! as String,
+    description: json['description']! as String,
+    iconName: json['iconName'] as String? ?? 'category',
+    reuseIdeas: (json['reuseIdeas'] as List<Object?>? ?? const [])
+        .map((idea) => ReuseIdea.fromJson(idea! as Map<String, Object?>))
+        .toList(growable: false),
+  );
+
   const RecyclingItem({
     required this.id,
     required this.name,
@@ -17,12 +39,13 @@ class RecyclingItem {
     required this.reuseIdeas,
   });
 
-  static List<RecyclingItem> sampleItems = [
+  static final List<RecyclingItem> sampleItems = List.unmodifiable([
     RecyclingItem(
       id: 'item_plastic_bottle',
       name: 'Plastic Bottle',
       category: 'Plastic',
-      description: 'PET Polyethylene plastic container widely used for beverages.',
+      description:
+          'PET Polyethylene plastic container widely used for beverages.',
       iconName: 'local_drink',
       reuseIdeas: [
         const ReuseIdea(
@@ -126,7 +149,11 @@ class RecyclingItem {
           category: 'Other',
           difficulty: 'Easy',
           timeRequired: '10 mins',
-          materialsNeeded: ['1 Clean Glass Jar', 'Jute Twine', 'Tea Light Candle'],
+          materialsNeeded: [
+            '1 Clean Glass Jar',
+            'Jute Twine',
+            'Tea Light Candle',
+          ],
           steps: [
             'Ensure the jar is completely clean and dry.',
             'Wrap jute twine securely around the neck or body.',
@@ -140,13 +167,15 @@ class RecyclingItem {
       id: 'item_cardboard_box',
       name: 'Cardboard Box',
       category: 'Paper',
-      description: 'Corrugated shipping or storage box made of recycled paper fibers.',
+      description:
+          'Corrugated shipping or storage box made of recycled paper fibers.',
       iconName: 'inventory_2',
       reuseIdeas: [
         const ReuseIdea(
           id: 'idea_drawer_divider',
           title: 'Drawer Organizer',
-          shortDescription: 'Cut panels to create custom slots for clothes or desk drawers.',
+          shortDescription:
+              'Cut panels to create custom slots for clothes or desk drawers.',
           category: 'Paper',
           difficulty: 'Easy',
           timeRequired: '15 mins',
@@ -170,11 +199,16 @@ class RecyclingItem {
         const ReuseIdea(
           id: 'idea_security_cam',
           title: 'Home Security Cam',
-          shortDescription: 'Repurpose an old functional phone as a Wi-Fi monitoring camera.',
+          shortDescription:
+              'Repurpose an old functional phone as a Wi-Fi monitoring camera.',
           category: 'E-Waste',
           difficulty: 'Medium',
           timeRequired: '10 mins',
-          materialsNeeded: ['Old Smartphone', 'Wi-Fi Connection', 'Phone Mount'],
+          materialsNeeded: [
+            'Old Smartphone',
+            'Wi-Fi Connection',
+            'Phone Mount',
+          ],
           steps: [
             'Factory reset old phone and connect to Wi-Fi.',
             'Download a security camera app (e.g. Alfred Camera).',
@@ -184,5 +218,5 @@ class RecyclingItem {
         ),
       ],
     ),
-  ];
+  ]);
 }

@@ -9,7 +9,24 @@ class ImpactStats {
     this.itemsRecycled = 0,
     this.pickupsCompleted = 0,
     this.rewardPoints = 0,
-  });
+  }) : assert(itemsReused >= 0),
+       assert(itemsRecycled >= 0),
+       assert(pickupsCompleted >= 0),
+       assert(rewardPoints >= 0);
+
+  Map<String, Object?> toJson() => {
+    'itemsReused': itemsReused,
+    'itemsRecycled': itemsRecycled,
+    'pickupsCompleted': pickupsCompleted,
+    'rewardPoints': rewardPoints,
+  };
+
+  factory ImpactStats.fromJson(Map<String, Object?> json) => ImpactStats(
+    itemsReused: json['itemsReused']! as int,
+    itemsRecycled: json['itemsRecycled']! as int,
+    pickupsCompleted: json['pickupsCompleted']! as int,
+    rewardPoints: json['rewardPoints']! as int,
+  );
 
   ImpactStats copyWith({
     int? itemsReused,
@@ -40,4 +57,12 @@ class RewardActivity {
     required this.date,
     this.note = 'Reward subject to applicable rules.',
   });
+
+  Map<String, Object?> toJson() => {
+    'title': title,
+    'category': category,
+    'points': points,
+    'date': date.toIso8601String(),
+    'note': note,
+  };
 }

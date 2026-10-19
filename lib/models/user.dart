@@ -5,6 +5,22 @@ class User {
   final String location;
   final String avatarUrl;
 
+  Map<String, Object?> toJson() => {
+    'name': name,
+    'email': email,
+    'phone': phone,
+    'location': location,
+    'avatarUrl': avatarUrl,
+  };
+
+  factory User.fromJson(Map<String, Object?> json) => User(
+    name: json['name']! as String,
+    email: json['email']! as String,
+    phone: json['phone']! as String,
+    location: json['location']! as String,
+    avatarUrl: json['avatarUrl'] as String? ?? '',
+  );
+
   const User({
     required this.name,
     required this.email,

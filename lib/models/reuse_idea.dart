@@ -9,6 +9,31 @@ class ReuseIdea {
   final List<String> steps;
   final String iconName;
 
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'title': title,
+    'shortDescription': shortDescription,
+    'category': category,
+    'difficulty': difficulty,
+    'timeRequired': timeRequired,
+    'materialsNeeded': materialsNeeded,
+    'steps': steps,
+    'iconName': iconName,
+  };
+
+  factory ReuseIdea.fromJson(Map<String, Object?> json) => ReuseIdea(
+    id: json['id']! as String,
+    title: json['title']! as String,
+    shortDescription: json['shortDescription']! as String,
+    category: json['category']! as String,
+    difficulty: json['difficulty']! as String,
+    timeRequired: json['timeRequired']! as String,
+    materialsNeeded: (json['materialsNeeded'] as List<Object?>? ?? const [])
+        .cast<String>(),
+    steps: (json['steps'] as List<Object?>? ?? const []).cast<String>(),
+    iconName: json['iconName'] as String? ?? 'lightbulb',
+  );
+
   const ReuseIdea({
     required this.id,
     required this.title,
