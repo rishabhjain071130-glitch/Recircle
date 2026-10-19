@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
@@ -21,10 +22,51 @@ class ReCircleApi {
   final http.Client _client;
   final FlutterSecureStorage _storage;
   static const _tokenKey = 'recircle_access_token';
-  static const _baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:3000/api/v1',
-  );
+  static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+
+  static String get baseUrl => _configuredBaseUrl.trim().isNotEmpty
+      ? _configuredBaseUrl.trim().replaceFirst(RegExp(r'/+$'), '')
+      : (kDebugMode ? 'http://10.0.2.2:3000/api/v1' : '');
+
+  static String? get configurationError {
+    final value = baseUrl;
+    if (value.isEmpty) {
+      return 'Production API URL is missing. Build with '
+          '--dart-define=API_BASE_URL=https://your-api-host/api/v1.';
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        !uri.hasAuthority ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment) {
+      return 'API_BASE_URL must be a valid API URL ending in /api/v1.';
+    }
+    if (uri.path.replaceFirst(RegExp(r'/+$'), '') != '/api/v1') {
+      return 'API_BASE_URL must end in /api/v1.';
+    }
+    final host = uri.host.toLowerCase();
+    final privateIpv4 =
+        RegExp(r'^(10\.|127\.|192\.168\.|169\.254\.)').hasMatch(host) ||
+        RegExp(r'^172\.(1[6-9]|2[0-9]|3[01])\.').hasMatch(host);
+    if (kReleaseMode &&
+        (host == 'localhost' ||
+            host.endsWith('.localhost') ||
+            host == '::1' ||
+            host == '0.0.0.0' ||
+            privateIpv4)) {
+      return 'Release API_BASE_URL must use a publicly reachable host, not '
+          'localhost or a private network address.';
+    }
+    if (kReleaseMode && uri.scheme != 'https') {
+      return 'Release builds require an HTTPS API_BASE_URL.';
+    }
+    if (!kReleaseMode && !{'http', 'https'}.contains(uri.scheme)) {
+      return 'API_BASE_URL must use HTTP or HTTPS.';
+    }
+    return null;
+  }
   String? _token;
   bool get hasSessionToken => _token != null;
 
@@ -66,7 +108,7 @@ class ReCircleApi {
       headers['X-ReCircle-Category'] = manualCategory;
     }
     try {
-      final request = http.Request('POST', Uri.parse('$_baseUrl/analysis'))
+      final request = http.Request('POST', Uri.parse('${baseUrl}/analysis'))
         ..headers.addAll(headers)
         ..bodyBytes = image;
       final streamed = await _client
@@ -93,7 +135,7 @@ class ReCircleApi {
     String path, [
     Map<String, dynamic>? body,
   ]) async {
-    final uri = Uri.parse('$_baseUrl$path');
+    final uri = Uri.parse('${baseUrl}$path');
     final headers = <String, String>{
       'Accept': 'application/json',
       'Content-Type': 'application/json',

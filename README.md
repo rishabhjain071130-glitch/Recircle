@@ -48,9 +48,30 @@ Keep the setup key private and rotate/remove it after account creation. Customer
 
 ## Flutter API configuration and networking
 
-The Flutter build reads `API_BASE_URL` with `--dart-define`. The default is `http://10.0.2.2:3000/api/v1`, which reaches the development computer from the standard Android emulator only. For a physical phone, find the Windows PC's active Wi-Fi/Ethernet IPv4 address with `Get-NetIPAddress -AddressFamily IPv4` and build with `flutter run --dart-define=API_BASE_URL=http://<PC-LAN-IPv4>:3000/api/v1`. Replace the placeholder with the actual address (do not type the angle brackets). Both devices must share a network, and Windows Firewall must permit inbound TCP port 3000 on the private network. Do not disable the firewall globally, use a public tunnel, or use the emulator address on a phone. The backend listens on all local interfaces after its MongoDB connection succeeds. Use HTTPS for a hosted demo.
+`API_BASE_URL` is the single API root used by authentication, analysis, history, and pickup workflows. In debug builds only, the default remains `http://10.0.2.2:3000/api/v1` for the Android emulator. Supply another developer URL explicitly with `flutter run --dart-define=API_BASE_URL=http://<developer-host>:3000/api/v1`. Android cleartext access is enabled only in the debug manifest.
 
-Example: `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api/v1`. Local HTTP is enabled for Android development through the app's development network configuration; production deployments should serve HTTPS. The app stores its bearer token in platform secure storage and refreshes request data from the API.
+Release builds have no local URL fallback. They require `--dart-define=API_BASE_URL=https://<your-host>/api/v1`; the app shows a configuration error on startup if the value is missing, malformed, not rooted at `/api/v1`, or not HTTPS. Build only after deploying the backend and use the service's actual HTTPS URL. Do not put MongoDB, JWT, Gemini, or partner setup secrets in this define.
+
+## Production deployment (Atlas + Render example)
+
+1. In MongoDB Atlas, create a project and a dedicated database deployment. Create a database user with a unique strong password and access limited to the `recircle` database (read/write only). Put the password into the URI through the dashboard's connection string flow and URL-encode reserved characters. Keep this URI private.
+2. In Atlas **Network Access**, allow the backend host's documented outbound IP addresses. If your hosting plan does not provide fixed outbound addresses, use the narrowest supported network option and understand that allowing `0.0.0.0/0` permits connection attempts from anywhere; Atlas still requires database credentials. Do not use that broad rule when a narrower host egress range is available.
+3. Create a Render **Web Service** from this GitHub repository. Set its root directory to `backend`, runtime to Node, build command to `npm ci`, and start command to `npm start`. Use a Node version satisfying `>=20`.
+4. In the Render service's Environment settings, set `MONGODB_URI` (Atlas connection string with database name `recircle`), `JWT_SECRET` (random, at least 32 characters), `GEMINI_API_KEY`, and `PARTNER_SETUP_KEY` (separate random value). Optionally set `JWT_EXPIRES_IN`, `GEMINI_MODEL`, and `CORS_ORIGINS` as comma-separated exact origins if a browser client needs API access. Flutter native requests generally have no browser Origin. Never paste secret values into source control or chat; generate and enter them directly in the provider dashboards. `PORT` is supplied by Render.
+5. Deploy and wait for the service to become healthy. Open `https://<service-host>/api/v1/health`. A healthy response reports `status: ok` and `database: connected`; it never returns the URI or credentials. A 503 means the backend cannot reach MongoDB.
+6. In the repository root, run `flutter pub get`, then build an installable release APK with the real URL:
+
+   ```powershell
+   flutter build apk --release --dart-define=API_BASE_URL=https://<service-host>/api/v1
+   ```
+
+   The APK is at `build/app/outputs/flutter-apk/app-release.apk`. A debug APK is intended for development and debugging; a release APK is optimized and does not permit the debug-only cleartext exception. This repository currently signs release builds with the Android debug key. That is adequate for a temporary private installation, but not for secure long-term updates/distribution; configure your own protected release keystore and signing properties locally before distributing. Never commit the keystore or passwords.
+7. Transfer the APK to the phone (USB file transfer, cloud drive, or another trusted method) and install it. Android may ask you to allow installs from that specific transfer app. Open ReCircle, register/sign in, analyze an item, open Analysis History, and create a pickup request.
+8. Turn off USB debugging, stop the laptop backend, and repeat on mobile data or a different Wi-Fi network. These checks establish that the app uses the hosted backend. Do not treat a successful build or local health check as proof of this end-to-end test.
+
+### Existing local data
+
+Atlas starts as a separate database; this deployment does not alter or delete the local database. If existing development records are needed, take a verified backup first and migrate only the required collections with `mongodump`/`mongorestore` using separately protected local and Atlas URIs. Test the restored data in a separate Atlas database before pointing a live service at it. Do not overwrite the existing local database.
 
 ## API reference
 
