@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -15,18 +14,29 @@ class ApiException implements Exception {
 }
 
 class ReCircleApi {
-  ReCircleApi({http.Client? client, FlutterSecureStorage? storage})
+  ReCircleApi({http.Client? client, FlutterSecureStorage? storage, String? baseUrl})
     : _client = client ?? http.Client(),
+      _baseUrl = baseUrl ?? ReCircleApi.baseUrl,
       _storage = storage ?? const FlutterSecureStorage();
 
   final http.Client _client;
+  final String _baseUrl;
   final FlutterSecureStorage _storage;
   static const _tokenKey = 'recircle_access_token';
   static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+  static const productionBaseUrl =
+      'https://recircle-backend-upbt.onrender.com/api/v1';
 
-  static String get baseUrl => _configuredBaseUrl.trim().isNotEmpty
-      ? _configuredBaseUrl.trim().replaceFirst(RegExp(r'/+$'), '')
-      : (kDebugMode ? 'http://10.0.2.2:3000/api/v1' : '');
+  static String resolveBaseUrl(String configured, {required bool debugMode}) {
+    final value = configured.trim();
+    if (value.isNotEmpty) return value.replaceFirst(RegExp(r'/+$'), '');
+    return debugMode ? 'http://10.0.2.2:3000/api/v1' : productionBaseUrl;
+  }
+
+  static String get baseUrl => resolveBaseUrl(
+    _configuredBaseUrl,
+    debugMode: kDebugMode,
+  );
 
   static String? get configurationError {
     final value = baseUrl;
@@ -108,7 +118,7 @@ class ReCircleApi {
       headers['X-ReCircle-Category'] = manualCategory;
     }
     try {
-      final request = http.Request('POST', Uri.parse('${baseUrl}/analysis'))
+      final request = http.Request('POST', Uri.parse('$_baseUrl/analysis'))
         ..headers.addAll(headers)
         ..bodyBytes = image;
       final streamed = await _client
@@ -135,7 +145,7 @@ class ReCircleApi {
     String path, [
     Map<String, dynamic>? body,
   ]) async {
-    final uri = Uri.parse('${baseUrl}$path');
+    final uri = Uri.parse('$_baseUrl$path');
     final headers = <String, String>{
       'Accept': 'application/json',
       'Content-Type': 'application/json',
@@ -167,15 +177,22 @@ class ReCircleApi {
     final decoded = response.body.isEmpty
         ? <String, dynamic>{}
         : jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode == 401) await clearToken();
+    if (response.statusCode == 401 && _token != null) await clearToken();
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
         decoded['success'] != true) {
       final error = decoded['error'];
+      final message = switch (response.statusCode) {
+        400 => 'Check the information you entered and try again.',
+        401 => 'Email or password is incorrect.',
+        409 => 'An account with this email already exists. Sign in instead.',
+        >= 500 => 'ReCircle is having trouble right now. Try again shortly.',
+        _ => error is Map && error['message'] is String
+            ? error['message'] as String
+            : 'Request failed. Please try again.',
+      };
       throw ApiException(
-        error is Map
-            ? '${error['message'] ?? 'Request failed'}'
-            : 'Request failed (${response.statusCode})',
+        message,
         statusCode: response.statusCode,
       );
     }

@@ -47,12 +47,21 @@ class _AuthScreenState extends State<AuthScreen> {
         await widget.appState.login(_email.text.trim(), _password.text);
       }
     } on ApiException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        final message = error.statusCode == null
+            ? (_register
+                  ? 'Could not create your account. Check your connection and try again.'
+                  : 'Could not sign in. Check your connection and try again.')
+            : error.message;
+        setState(() => _error = message);
+      }
     } catch (_) {
       if (mounted) {
         setState(
           () => _error =
-              'Could not sign in. Check the server connection and try again.',
+              _register
+                  ? 'Could not create your account. Check your connection and try again.'
+                  : 'Could not sign in. Check your connection and try again.',
         );
       }
     } finally {
