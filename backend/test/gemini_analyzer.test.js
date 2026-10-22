@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { analysisSchema, createGeminiAnalyzer } = require('../src/services/gemini_analyzer');
+const { getConfig } = require('../src/config');
 
 const result = {
   itemName: 'Laptop', category: 'electronics', likelyMaterials: ['metal'],
@@ -9,7 +10,13 @@ const result = {
   reuseSuggestions: [], recyclingRecommendation: 'Check local e-waste guidance.',
   safetyNotes: [], explanation: 'A laptop is visible.',
 };
-const response = (body, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+const response = (body, status = 200, headers = {}) => ({ ok: status >= 200 && status < 300, status, headers: { get: (name) => headers[name.toLowerCase()] ?? null }, json: async () => body });
+
+test('reads Gemini settings from the documented environment variable names', () => {
+  const config = getConfig({ GEMINI_API_KEY: 'test-only-key', GEMINI_MODEL: 'gemini-3.8-flash' });
+  assert.equal(config.geminiApiKey, 'test-only-key');
+  assert.equal(config.geminiModel, 'gemini-3.8-flash');
+});
 
 test('sends inline image data to the configured Gemini model and parses structured output', async () => {
   let request;
@@ -24,6 +31,8 @@ test('sends inline image data to the configured Gemini model and parses structur
   const payload = JSON.parse(request.options.body);
   assert.equal(payload.contents[0].parts[1].inline_data.data, Buffer.from([1, 2, 3]).toString('base64'));
   assert.equal(payload.generationConfig.responseMimeType, 'application/json');
+  assert.deepEqual(payload.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
+  assert.equal(Object.hasOwn(payload.generationConfig, 'temperature'), false);
 });
 
 test('missing key and provider failures become safe, actionable errors', async () => {
@@ -42,8 +51,50 @@ test('missing key and provider failures become safe, actionable errors', async (
 test('provider timeout reports a retryable timeout', async () => {
   const timeout = new Error('timeout');
   timeout.name = 'TimeoutError';
-  const analyze = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'gemini-3.8-flash' }, async () => { throw timeout; });
-  await assert.rejects(analyze({ image: Buffer.from([1]), mimeType: 'image/webp' }), (error) => error.status === 504 && /timed out/.test(error.message));
+  let calls = 0;
+  const delays = [];
+  const analyze = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'gemini-3.8-flash' }, async () => { calls += 1; throw timeout; }, { sleep: async (delay) => delays.push(delay), random: () => 0 });
+  await assert.rejects(analyze({ image: Buffer.from([1]), mimeType: 'image/webp' }), (error) => error.status === 504 && error.category === 'timeout' && error.attempts === 2 && /timed out/.test(error.message));
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [500]);
+});
+
+test('retries a transient 503 once, then returns the successful structured response', async () => {
+  let calls = 0;
+  const delays = [];
+  const analyze = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'gemini-3.8-flash' }, async () => {
+    calls += 1;
+    return calls === 1 ? response({}, 503) : response({ candidates: [{ content: { parts: [{ text: JSON.stringify(result) }] } }] });
+  }, { sleep: async (delay) => delays.push(delay), random: () => 0 });
+  assert.deepEqual(await analyze({ image: Buffer.from([1]), mimeType: 'image/jpeg' }), result);
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [500]);
+});
+
+test('honors Retry-After for 429 and does not retry unsupported-model errors', async () => {
+  let calls = 0;
+  const delays = [];
+  const throttled = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'gemini-3.8-flash' }, async () => {
+    calls += 1;
+    return response({}, 429, { 'retry-after': '2' });
+  }, { sleep: async (delay) => delays.push(delay), random: () => 0 });
+  await assert.rejects(throttled({ image: Buffer.from([1]), mimeType: 'image/jpeg' }), (error) => error.category === 'quota' && error.attempts === 2);
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [2000]);
+
+  calls = 0;
+  const missingModel = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'missing-model' }, async () => { calls += 1; return response({}, 404); }, { sleep: async () => assert.fail('unsupported model must not retry') });
+  await assert.rejects(missingModel({ image: Buffer.from([1]), mimeType: 'image/jpeg' }), (error) => error.category === 'model_unavailable' && error.attempts === 1);
+  assert.equal(calls, 1);
+});
+
+test('does not retry authentication or invalid-request provider failures', async () => {
+  for (const status of [400, 401, 403]) {
+    let calls = 0;
+    const analyze = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'gemini-3.8-flash' }, async () => { calls += 1; return response({}, status); }, { sleep: async () => assert.fail('permanent provider errors must not retry') });
+    await assert.rejects(analyze({ image: Buffer.from([1]), mimeType: 'image/jpeg' }));
+    assert.equal(calls, 1);
+  }
 });
 
 test('schema rejects incomplete or unsafe claims from generated content', () => {

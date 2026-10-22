@@ -96,7 +96,7 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
       res.status(201).json({ success: true, data: { ...result, analysisId: record.id, analyzedAt: record.createdAt } });
     } catch (error) {
       error.stage ||= stage;
-      console.error(JSON.stringify({ event: 'analysis_failure', requestId: req.requestId || 'unknown', stage: error.stage, httpStatus: error.status || 500, providerStatus: error.providerStatus, errorCategory: error.category || error.code || 'internal_error' }));
+      console.error(JSON.stringify({ event: 'analysis_failure', requestId: req.requestId || 'unknown', stage: error.stage, httpStatus: error.status || 500, providerStatus: error.providerStatus, attempts: error.attempts, errorCategory: error.category || error.code || 'internal_error' }));
       next(error);
     }
   });

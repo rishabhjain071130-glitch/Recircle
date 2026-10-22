@@ -11,6 +11,7 @@ const { getConfig, validateConfig } = require('../src/config');
 process.env.MONGOMS_DOWNLOAD_DIR = require('node:path').join(__dirname, '..', '.mongo-cache');
 
 let mongo;
+let testDbPath;
 let app;
 let providerBehavior;
 const analysisFixture = {
@@ -23,14 +24,17 @@ const analysisFixture = {
 const config = { jwtSecret: 'test-only-secret-that-is-longer-than-thirty-two-chars', jwtExpiresIn: '1h', corsOrigins: [], partnerSetupKey: 'test-setup-key' };
 
 before(async () => {
-  const dbPath = require('node:path').join(__dirname, '..', '.mongo-cache', 'test-db');
-  await require('node:fs/promises').mkdir(dbPath, { recursive: true });
-  mongo = await MongoMemoryServer.create({ instance: { dbPath } });
+  testDbPath = await require('node:fs/promises').mkdtemp(require('node:path').join(__dirname, '..', '.mongo-cache', 'api-test-'));
+  mongo = await MongoMemoryServer.create({ instance: { dbPath: testDbPath } });
   await mongoose.connect(mongo.getUri());
   providerBehavior = async () => analysisFixture;
   app = createApp({ config, models: { User, PickupRequest, AnalysisRecord }, analyzeImage: (...args) => providerBehavior(...args) });
 });
-after(async () => { await mongoose.disconnect(); if (mongo) await mongo.stop(); });
+after(async () => {
+  await mongoose.disconnect();
+  if (mongo) await mongo.stop();
+  if (testDbPath) await require('node:fs/promises').rm(testDbPath, { recursive: true, force: true });
+});
 beforeEach(async () => { providerBehavior = async () => analysisFixture; await User.deleteMany({}); await PickupRequest.deleteMany({}); await AnalysisRecord.deleteMany({}); });
 
 async function register(name, email, role = 'customer') {
@@ -47,6 +51,7 @@ async function register(name, email, role = 'customer') {
 }
 
 test('health endpoint reports database connectivity', async () => {
+  assert.equal(app.get('trust proxy'), 1);
   const response = await request(app).get('/api/v1/health');
   assert.equal(response.status, 200);
   assert.deepEqual(response.body.data, { status: 'ok', database: 'connected' });

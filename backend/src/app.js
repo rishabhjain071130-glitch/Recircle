@@ -4,9 +4,13 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { randomUUID } = require('node:crypto');
 const { getConfig } = require('./config');
+const { GeminiProviderError } = require('./services/gemini_analyzer');
 
 function createApp({ config = getConfig(), models, analyzeImage } = {}) {
   const app = express();
+  // Render places one trusted ingress proxy in front of each web service.
+  // Configure this before middleware such as express-rate-limit reads req.ip.
+  app.set('trust proxy', 1);
   app.disable('x-powered-by');
   app.use(helmet());
   app.use((req, res, next) => {
@@ -40,13 +44,14 @@ function createApp({ config = getConfig(), models, analyzeImage } = {}) {
         event: 'api_failure', requestId: req.requestId || 'unknown',
         stage: err.stage || (status === 413 ? 'image_validation' : 'request'), httpStatus: status,
         providerStatus: err.providerStatus,
+        attempts: err.attempts,
         errorCategory: err.category || (status >= 500 ? 'internal_error' : 'request_error'),
       }));
     }
     const message = status === 413
       ? 'The image is too large. Choose an image under 8 MB.'
       : status >= 500
-        ? (err.name === 'GeminiProviderError' ? err.message : 'Internal server error')
+        ? (err instanceof GeminiProviderError ? err.message : 'Internal server error')
         : err.message;
     const code = err.code || ({ quota: 'GEMINI_QUOTA', model_unavailable: 'GEMINI_MODEL_UNAVAILABLE', invalid_image: 'INVALID_IMAGE' }[err.category]);
     res.status(status).json({ success: false, error: { message, ...(code ? { code } : {}), ...(err.details ? { details: err.details } : {}) }, requestId: req.requestId });
