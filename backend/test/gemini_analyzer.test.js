@@ -32,7 +32,9 @@ test('missing key and provider failures become safe, actionable errors', async (
     (error) => error.status === 503 && error.message === 'Image analysis is not configured on the server.',
   );
   const limited = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'gemini-3.8-flash' }, async () => response({ error: { message: 'private provider detail' } }, 429));
-  await assert.rejects(limited({ image: Buffer.from([1]), mimeType: 'image/png' }), (error) => error.status === 503 && !error.message.includes('private'));
+  await assert.rejects(limited({ image: Buffer.from([1]), mimeType: 'image/png' }), (error) => error.status === 503 && error.category === 'quota' && !error.message.includes('private'));
+  const missingModel = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'missing-model' }, async () => response({}, 404));
+  await assert.rejects(missingModel({ image: Buffer.from([1]), mimeType: 'image/png' }), (error) => error.status === 503 && error.category === 'model_unavailable');
   const invalid = createGeminiAnalyzer({ geminiApiKey: 'secret', geminiModel: 'gemini-3.8-flash' }, async () => response({ candidates: [{ content: { parts: [{ text: '{bad json' }] } }] }));
   await assert.rejects(invalid({ image: Buffer.from([1]), mimeType: 'image/png' }), /unreadable result/);
 });

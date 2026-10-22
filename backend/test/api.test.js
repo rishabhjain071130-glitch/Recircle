@@ -63,6 +63,8 @@ test('analysis requires authentication and validates actual image type and size'
   const token = await register('Scan User', 'scan@example.com');
   const missing = await request(app).post('/api/v1/analysis').set('Authorization', `Bearer ${token}`).set('Content-Type', 'image/jpeg').send(Buffer.alloc(0));
   assert.equal(missing.status, 400);
+  assert.equal(missing.body.error.code, 'INVALID_IMAGE');
+  assert.equal(missing.headers['x-request-id'], missing.body.requestId);
   const mismatch = await request(app).post('/api/v1/analysis').set('Authorization', `Bearer ${token}`).set('Content-Type', 'image/png').send(jpeg);
   assert.equal(mismatch.status, 400);
   const tooLarge = await request(app).post('/api/v1/analysis').set('Authorization', `Bearer ${token}`).set('Content-Type', 'image/jpeg').send(Buffer.concat([jpeg, Buffer.alloc(8 * 1024 * 1024)]));
@@ -122,6 +124,16 @@ test('malformed provider schema is returned as a sanitized error and is not save
   assert.equal(response.status, 502);
   assert.equal(response.body.error.message, 'The image analysis provider returned an unreadable result.');
   assert.equal(await AnalysisRecord.countDocuments(), 0);
+});
+
+test('Gemini failure categories are returned safely with a correlation ID', async () => {
+  const token = await register('Scan User', 'provider-error@example.com');
+  providerBehavior = async () => { const error = new Error('private provider response'); error.name = 'GeminiProviderError'; error.status = 503; error.category = 'quota'; throw error; };
+  const response = await request(app).post('/api/v1/analysis').set('Authorization', `Bearer ${token}`).set('Content-Type', 'image/jpeg').send(Buffer.from([0xff, 0xd8, 0xff]));
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error.code, 'GEMINI_QUOTA');
+  assert.equal(response.body.error.message.includes('private'), false);
+  assert.equal(response.headers['x-request-id'], response.body.requestId);
 });
 
 test('customer cannot select partner role and passwords are hashed', async () => {

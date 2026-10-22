@@ -59,32 +59,46 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     keyGenerator: (req) => req.user.id,
+    handler: (req, res) => {
+      console.error(JSON.stringify({ event: 'analysis_failure', requestId: req.requestId || 'unknown', stage: 'rate_limit', httpStatus: 429, errorCategory: 'analysis_rate_limit' }));
+      res.status(429).json({ success: false, error: { code: 'ANALYSIS_RATE_LIMIT', message: 'Too many image analyses. Please wait and retry.' }, requestId: req.requestId });
+    },
   }), express.raw({ type: 'image/*', limit: '8mb' }), async (req, res, next) => {
+    let stage = 'image_validation';
     try {
       if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-        return res.status(400).json({ success: false, error: { message: 'Choose a JPG, PNG, or WebP image to analyze.' } });
+        const error = new Error('Choose a JPG, PNG, or WebP image to analyze.'); error.status = 400; error.code = 'INVALID_IMAGE'; throw error;
       }
       const declaredMime = (req.get('content-type') || '').split(';')[0].trim().toLowerCase();
       if (!imageMimeTypes.has(declaredMime) || imageFormat(req.body) !== declaredMime) {
-        return res.status(400).json({ success: false, error: { message: 'The image content does not match a supported JPG, PNG, or WebP format.' } });
+        const error = new Error('The image content does not match a supported JPG, PNG, or WebP format.'); error.status = 400; error.code = 'INVALID_IMAGE'; throw error;
       }
       const manualCategory = req.get('x-recircle-category') || undefined;
       if (manualCategory && !categoryNames.includes(manualCategory)) {
-        return res.status(400).json({ success: false, error: { message: 'Choose a valid item category.' } });
+        const error = new Error('Choose a valid item category.'); error.status = 400; throw error;
       }
       if (typeof analyzeImage !== 'function') {
-        return res.status(503).json({ success: false, error: { message: 'Image analysis is not configured on the server.' } });
+        const error = new GeminiProviderError('Image analysis is not configured on the server.', 503, 'configuration');
+        error.stage = 'configuration';
+        throw error;
       }
+      stage = 'gemini_request';
       const providerResult = await analyzeImage({ image: req.body, mimeType: declaredMime, manualCategory });
+      stage = 'response_validation';
       const parsedResult = analysisSchema.safeParse(providerResult);
-      if (!parsedResult.success) throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502);
+      if (!parsedResult.success) throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502, 'response_parse');
       const result = {
         ...parsedResult.data,
         ...(manualCategory ? { category: manualCategory } : {}),
       };
+      stage = 'persistence';
       const record = await models.AnalysisRecord.create({ user: req.user.id, result });
       res.status(201).json({ success: true, data: { ...result, analysisId: record.id, analyzedAt: record.createdAt } });
-    } catch (error) { next(error); }
+    } catch (error) {
+      error.stage ||= stage;
+      console.error(JSON.stringify({ event: 'analysis_failure', requestId: req.requestId || 'unknown', stage: error.stage, httpStatus: error.status || 500, providerStatus: error.providerStatus, errorCategory: error.category || error.code || 'internal_error' }));
+      next(error);
+    }
   });
 
   router.get('/analysis/history', auth(config, 'customer'), async (req, res, next) => {

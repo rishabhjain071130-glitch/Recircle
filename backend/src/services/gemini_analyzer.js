@@ -54,16 +54,18 @@ const responseSchema = {
 };
 
 class GeminiProviderError extends Error {
-  constructor(message, status = 502) {
+  constructor(message, status = 502, category = 'provider_error', providerStatus = null) {
     super(message);
     this.status = status;
+    this.category = category;
+    this.providerStatus = providerStatus;
   }
 }
 
 function createGeminiAnalyzer(config, fetchImpl = fetch) {
   return async ({ image, mimeType, manualCategory }) => {
     if (!config.geminiApiKey) {
-      throw new GeminiProviderError('Image analysis is not configured on the server.', 503);
+      throw new GeminiProviderError('Image analysis is not configured on the server.', 503, 'configuration');
     }
     const prompt = [
       'Analyze this image for ReCircle, an e-waste reuse and recycling app. Return only JSON matching the supplied schema.',
@@ -89,14 +91,16 @@ function createGeminiAnalyzer(config, fetchImpl = fetch) {
       });
     } catch (error) {
       if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-        throw new GeminiProviderError('Image analysis timed out. Please retry.', 504);
+        throw new GeminiProviderError('Image analysis timed out. Please retry.', 504, 'timeout');
       }
-      throw new GeminiProviderError('The image analysis provider could not be reached.', 503);
+      throw new GeminiProviderError('The image analysis provider could not be reached.', 503, 'unavailable');
     }
     if (!response.ok) {
-      if (response.status === 429) throw new GeminiProviderError('Image analysis is busy. Please wait and retry.', 503);
-      if (response.status === 401 || response.status === 403) throw new GeminiProviderError('Image analysis is not available with the current server configuration.', 503);
-      throw new GeminiProviderError('The image analysis provider could not complete the request.', 502);
+      if (response.status === 429) throw new GeminiProviderError('Image analysis is busy. Please wait and retry.', 503, 'quota', response.status);
+      if (response.status === 404) throw new GeminiProviderError('Image analysis is temporarily unavailable.', 503, 'model_unavailable', response.status);
+      if (response.status === 401 || response.status === 403) throw new GeminiProviderError('Image analysis is not available with the current server configuration.', 503, 'configuration', response.status);
+      if (response.status === 400) throw new GeminiProviderError('The image could not be analyzed. Choose a different photo and retry.', 400, 'invalid_image', response.status);
+      throw new GeminiProviderError('The image analysis provider could not complete the request.', 502, 'provider_error', response.status);
     }
     let payload;
     try {
@@ -107,7 +111,7 @@ function createGeminiAnalyzer(config, fetchImpl = fetch) {
       if (!parsed.success) throw new Error('Generated content did not match the expected schema');
       return parsed.data;
     } catch (_error) {
-      throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502);
+      throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502, 'response_parse');
     }
   };
 }

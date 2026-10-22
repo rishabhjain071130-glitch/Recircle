@@ -14,10 +14,13 @@ class ApiException implements Exception {
 }
 
 class ReCircleApi {
-  ReCircleApi({http.Client? client, FlutterSecureStorage? storage, String? baseUrl})
-    : _client = client ?? http.Client(),
-      _baseUrl = baseUrl ?? ReCircleApi.baseUrl,
-      _storage = storage ?? const FlutterSecureStorage();
+  ReCircleApi({
+    http.Client? client,
+    FlutterSecureStorage? storage,
+    String? baseUrl,
+  }) : _client = client ?? http.Client(),
+       _baseUrl = baseUrl ?? ReCircleApi.baseUrl,
+       _storage = storage ?? const FlutterSecureStorage();
 
   final http.Client _client;
   final String _baseUrl;
@@ -33,10 +36,8 @@ class ReCircleApi {
     return debugMode ? 'http://10.0.2.2:3000/api/v1' : productionBaseUrl;
   }
 
-  static String get baseUrl => resolveBaseUrl(
-    _configuredBaseUrl,
-    debugMode: kDebugMode,
-  );
+  static String get baseUrl =>
+      resolveBaseUrl(_configuredBaseUrl, debugMode: kDebugMode);
 
   static String? get configurationError {
     final value = baseUrl;
@@ -77,6 +78,7 @@ class ReCircleApi {
     }
     return null;
   }
+
   String? _token;
   bool get hasSessionToken => _token != null;
 
@@ -182,19 +184,55 @@ class ReCircleApi {
         response.statusCode >= 300 ||
         decoded['success'] != true) {
       final error = decoded['error'];
-      final message = switch (response.statusCode) {
-        400 => 'Check the information you entered and try again.',
-        401 => 'Email or password is incorrect.',
-        409 => 'An account with this email already exists. Sign in instead.',
-        >= 500 => 'ReCircle is having trouble right now. Try again shortly.',
-        _ => error is Map && error['message'] is String
-            ? error['message'] as String
-            : 'Request failed. Please try again.',
+      final code = error is Map ? error['code'] : null;
+      final isAnalysisRequest =
+          response.request?.url.path.endsWith('/analysis') ?? false;
+      final message = switch (code) {
+        'ANALYSIS_RATE_LIMIT' =>
+          'Too many image analyses. Please wait and retry.',
+        'GEMINI_QUOTA' => 'Image analysis is busy. Please wait and retry.',
+        'GEMINI_MODEL_UNAVAILABLE' =>
+          'Image analysis is temporarily unavailable. Please retry later.',
+        'INVALID_IMAGE' => 'This image could not be analyzed. Choose a JPG, PNG, or WebP photo and retry.',
+        _ => switch (response.statusCode) {
+          400 =>
+            error is Map && error['message'] is String
+                ? error['message'] as String
+                : 'Check the information you entered and try again.',
+          401 =>
+            _token == null
+                ? 'Email or password is incorrect.'
+                : 'Your session expired. Sign in again to analyze this item.',
+          403 => 'This account cannot analyze images.',
+          413 =>
+            isAnalysisRequest
+                ? 'This image is too large. Choose an image under 8 MB.'
+                : 'The request was too large. Please retry.',
+          429 => 'Too many requests. Please wait and retry.',
+          502 =>
+            isAnalysisRequest
+                ? 'The analysis service returned an unreadable result. Please retry.'
+                : 'ReCircle could not complete the request. Please retry.',
+          503 =>
+            isAnalysisRequest
+                ? 'Image analysis is temporarily unavailable. Please retry shortly.'
+                : 'ReCircle is temporarily unavailable. Please retry shortly.',
+          504 =>
+            isAnalysisRequest
+                ? 'Image analysis timed out. Check the connection and retry.'
+                : 'The request timed out. Check the connection and retry.',
+          409 => 'An account with this email already exists. Sign in instead.',
+          >= 500 =>
+            isAnalysisRequest
+                ? 'ReCircle could not complete image analysis. Please retry shortly.'
+                : 'ReCircle is having trouble right now. Try again shortly.',
+          _ =>
+            error is Map && error['message'] is String
+                ? error['message'] as String
+                : 'Request failed. Please try again.',
+        },
       };
-      throw ApiException(
-        message,
-        statusCode: response.statusCode,
-      );
+      throw ApiException(message, statusCode: response.statusCode);
     }
     return decoded['data'] ?? decoded;
   }
