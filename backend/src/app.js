@@ -37,6 +37,9 @@ function createApp({ config = getConfig(), models, analyzeImage } = {}) {
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
       return res.status(400).json({ success: false, error: { message: 'Malformed JSON request body' } });
     }
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ success: false, error: { message: 'Invalid request data', details: err.issues.map((issue) => ({ field: issue.path.join('.'), message: issue.message })) }, requestId: req.requestId });
+    }
     const status = err.status || 500;
     const isAnalysisFailure = req.path.endsWith('/analysis');
     if (!err.stage && (status >= 500 || err.name === 'GeminiProviderError' || isAnalysisFailure)) {

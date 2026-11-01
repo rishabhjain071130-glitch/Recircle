@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { getConfig, validateConfig } = require('./config');
 const { createApp } = require('./app');
-const { User, PickupRequest, AnalysisRecord } = require('./models');
+const { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit } = require('./models');
 const { createGeminiAnalyzer } = require('./services/gemini_analyzer');
 
 async function start() {
@@ -18,7 +18,7 @@ async function start() {
   }
   const app = createApp({
     config,
-    models: { User, PickupRequest, AnalysisRecord },
+    models: { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit },
     analyzeImage: createGeminiAnalyzer(config),
   });
   return app.listen(config.port, '0.0.0.0', () => console.log(`ReCircle API listening on port ${config.port}`));

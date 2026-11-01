@@ -9,6 +9,7 @@ function getConfig(env = process.env) {
     corsOrigins: (env.CORS_ORIGINS || 'http://localhost:3000')
       .split(',').map((origin) => origin.trim()).filter(Boolean),
     partnerSetupKey: env.PARTNER_SETUP_KEY || '',
+    demoMode: env.DEMO_MODE === 'true',
     geminiApiKey: env.GEMINI_API_KEY || '',
     geminiModel: env.GEMINI_MODEL || 'gemini-3.8-flash',
   };

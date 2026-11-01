@@ -33,9 +33,27 @@ Add `GEMINI_API_KEY` to `backend/.env` from a Google AI Studio API key; do not p
 
 Run `npm start` (or `npm run dev` for Node's watch mode). Check `http://localhost:3000/api/v1/health`. Run backend tests with `npm test`; they use an in-memory MongoDB and need no Atlas database. On the first test run, `mongodb-memory-server` downloads the MongoDB 7.0 test binary (about 600 MB on Windows) into the ignored `backend/.mongo-cache/` directory.
 
-### Demo partner account
+### Demo market rates and admin account
 
-There is intentionally no public partner registration. With the API running and `PARTNER_SETUP_KEY` configured, create a demo partner from a trusted terminal:
+The rate management feature uses the existing login endpoint and database role authorization. Create the first admin once from a trusted backend terminal after setting `MONGODB_URI`, `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in the process environment (password must have at least 12 characters):
+
+```powershell
+node scripts/bootstrap_admin.js
+```
+
+The bootstrap command refuses to create another admin; the database also enforces a unique admin role. Admins sign in through the normal ReCircle login. Never pass these provisioning values to Flutter or commit them. `DEMO_MODE` defaults to `false`. For an isolated demonstration database only, explicitly set `DEMO_MODE=true`, then run `node scripts/seed_demo_rates.js` from `backend/`. It inserts illustrative, clearly marked values for past, current, and future dates, skips existing date/scope records, and never overwrites rates edited by an administrator. Set `DEMO_MODE=false` to stop exposing/creating demo rates when the database is switched to real data. Keep demo and real data in separate databases; do not enable demo mode on a real pricing database.
+
+Customer market rates are read-only at `/market-rates`, `/market-rates/:material`, `/market-rates/history/:material`, and `/market-rates/available-dates`. The `/admin/market-rates` collection and its create/edit/publish/unpublish actions, plus `/admin/market-rates/:id/history`, require a bearer token whose database user role is `admin`. Published versions and every admin action are snapshotted in `MarketRateHistory` and `MarketRateAudit`.
+
+### Partner applications and approval
+
+Customers can apply from the sign-in screen using **Apply as a collection partner**. The API creates a partner account with `partnerStatus=pending` and hashes the password using the existing bcrypt flow. Pending partners can view or edit their application profile, but the backend denies pickup APIs until an administrator approves them. Rejected and suspended accounts are also denied; status changes are audited in `PartnerApprovalAudit`.
+
+An existing admin signs in to the same app and opens **Partner applications** from the admin dashboard to review and approve, reject, or suspend applicants. The server derives the admin identity from the bearer token and the database role; there is no public approval route. Existing approved partners created through `PARTNER_SETUP_KEY` remain approved for compatibility. No new environment variables are required.
+
+### Legacy demo partner provisioning
+
+For trusted legacy/demo provisioning, the existing `PARTNER_SETUP_KEY` route remains available. With the API running and the key configured, create an already-approved demo partner from a trusted terminal:
 
 ```sh
 curl -X POST http://localhost:3000/api/v1/auth/partner-setup \
