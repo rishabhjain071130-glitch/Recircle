@@ -28,6 +28,12 @@ const historyQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 }).strict();
+const adminListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(1000000).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  search: z.string().trim().max(100).optional(),
+  status: z.enum(['Submitted', 'Accepted', 'Collected', 'ReceivedForProcessing', 'Completed', 'Cancelled']).optional(),
+}).strict();
 const imageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const categoryNames = ['plastic', 'paper', 'cardboard', 'glass', 'metal', 'electronics', 'textiles', 'mixedMaterials', 'unknown'];
 
@@ -57,6 +63,11 @@ function validRequestId(req, res) {
   if (mongoose.isValidObjectId(req.params.id)) return true;
   res.status(400).json({ success: false, error: { message: 'Invalid request ID' } });
   return false;
+}
+
+function escapeRegExp(value) {
+  const special = new Set(['\\', '^', '$', '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|']);
+  return [...value].map((character) => special.has(character) ? String.fromCharCode(92) + character : character).join('');
 }
 
 module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
@@ -197,6 +208,55 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
       const partner = await models.User.findById(req.params.id).select('name email phone address city pinCode serviceArea partnerStatus partnerStatusReason partnerAvailable');
       await models.PartnerApprovalAudit.create({ partner: partner.id, actor: req.user.id, from: previous.partnerStatus || 'approved', to: body.status, reason: body.reason || '' });
       res.json({ success: true, data: { id: partner.id, role: partner.role, partnerStatus: partner.partnerStatus, partnerStatusReason: partner.partnerStatusReason, partnerAvailable: partner.partnerAvailable } });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/admin/dashboard/stats', auth(config, 'admin'), async (_req, res, next) => {
+    try {
+      const [customers, partners, pendingPartners, approvedPartners, rejectedPartners, pickups, completedPickups] = await Promise.all([
+        models.User.countDocuments({ role: 'customer' }),
+        models.User.countDocuments({ role: 'partner' }),
+        models.User.countDocuments({ role: 'partner', partnerStatus: 'pending' }),
+        models.User.countDocuments({ role: 'partner', $or: [{ partnerStatus: 'approved' }, { partnerStatus: { $exists: false } }] }),
+        models.User.countDocuments({ role: 'partner', partnerStatus: 'rejected' }),
+        models.PickupRequest.countDocuments({}),
+        models.PickupRequest.countDocuments({ status: 'Completed' }),
+      ]);
+      res.json({ success: true, data: { customers, partners, pendingPartners, approvedPartners, rejectedPartners, pickups, completedPickups } });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/admin/customers', auth(config, 'admin'), async (req, res, next) => {
+    try {
+      const query = validate(adminListQuerySchema.omit({ status: true }), req.query);
+      const filter = { role: 'customer' };
+      if (query.search) {
+        const escaped = escapeRegExp(query.search);
+        filter.$or = [{ name: { $regex: escaped, $options: 'i' } }, { email: { $regex: escaped, $options: 'i' } }];
+      }
+      const [items, total] = await Promise.all([
+        models.User.find(filter).select('name email active createdAt').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit).lean(),
+        models.User.countDocuments(filter),
+      ]);
+      res.json({ success: true, data: { items, pagination: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) } } });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/admin/pickups', auth(config, 'admin'), async (req, res, next) => {
+    try {
+      const query = validate(adminListQuerySchema, req.query);
+      const filter = query.status ? { status: query.status } : {};
+      if (query.search) {
+        const escaped = escapeRegExp(query.search);
+        const matchingUsers = await models.User.find({ role: { $in: ['customer', 'partner'] }, $or: [{ name: { $regex: escaped, $options: 'i' } }, { email: { $regex: escaped, $options: 'i' } }] }).select('_id').lean();
+        const userIds = matchingUsers.map((user) => user._id);
+        filter.$or = [{ customer: { $in: userIds } }, { partner: { $in: userIds } }, { 'item.name': { $regex: escaped, $options: 'i' } }];
+      }
+      const [items, total] = await Promise.all([
+        models.PickupRequest.find(filter).select('item pickup status customer partner history createdAt updatedAt').populate('customer', 'name email').populate('partner', 'name email phone').sort({ updatedAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit).lean(),
+        models.PickupRequest.countDocuments(filter),
+      ]);
+      res.json({ success: true, data: { items, pagination: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) } } });
     } catch (error) { next(error); }
   });
 

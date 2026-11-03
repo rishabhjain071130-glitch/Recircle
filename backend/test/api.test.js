@@ -1,6 +1,7 @@
 const { before, after, beforeEach, test } = require('node:test');
 const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -208,6 +209,8 @@ test('Gemini failure categories are returned safely with a correlation ID', asyn
 test('customer cannot select partner role and passwords are hashed', async () => {
   const response = await request(app).post('/api/v1/auth/register').send({ name: 'Riya', email: 'RIYA@example.com', password: 'secure-pass-123', role: 'partner' });
   assert.equal(response.status, 400);
+  const adminRegistration = await request(app).post('/api/v1/auth/register').send({ name: 'Attacker', email: 'attacker@example.com', password: 'secure-pass-123', role: 'admin' });
+  assert.equal(adminRegistration.status, 400);
   const token = await register('Riya', 'RIYA@example.com');
   const login = await request(app).post('/api/v1/auth/login').send({ email: 'riya@example.com', password: 'secure-pass-123' });
   assert.equal(Object.hasOwn(login.body.data.user, 'passwordHash'), false);
@@ -218,6 +221,27 @@ test('customer cannot select partner role and passwords are hashed', async () =>
   const user = await User.findOne({ email: 'riya@example.com' }).select('+passwordHash');
   assert.notEqual(user.passwordHash, 'secure-pass-123');
   assert.equal((await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`)).body.data.role, 'customer');
+});
+
+test('admin signs in through the existing login and credentials are validated', async () => {
+  const admin = await User.create({
+    name: 'Verified Admin', email: 'verified-admin@example.com',
+    passwordHash: await bcrypt.hash('admin-password-123', 12), role: 'admin',
+  });
+  const invalid = await request(app).post('/api/v1/auth/login').send({
+    email: admin.email, password: 'wrong-password',
+  });
+  assert.equal(invalid.status, 401);
+  const login = await request(app).post('/api/v1/auth/login').send({
+    email: admin.email, password: 'admin-password-123',
+  });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.data.user.role, 'admin');
+  assert.equal(Object.hasOwn(login.body.data.user, 'passwordHash'), false);
+  const identity = await request(app).get('/api/v1/auth/me')
+    .set('Authorization', `Bearer ${login.body.data.token}`);
+  assert.equal(identity.status, 200);
+  assert.equal(identity.body.data.role, 'admin');
 });
 
 test('partner registration is pending until an authenticated admin approves it', async () => {
@@ -281,6 +305,54 @@ test('partner declines are private to that partner and availability controls eli
   assert.equal(ownerRequests.body.data[0].partner.phone, partnerB.phone);
   const other = await register('Other owner', 'other-owner@example.com');
   assert.equal((await request(app).get(`/api/v1/requests/${id}`).set('Authorization', `Bearer ${other}`)).status, 403);
+});
+
+test('admin dashboard, customer directory, and pickup monitor are authorized and data-backed', async () => {
+  const admin = await User.create({ name: 'Platform Admin', email: 'platform-admin@example.com', passwordHash: 'hashed', role: 'admin' });
+  const adminToken = jwt.sign({ sub: admin.id, role: 'customer' }, config.jwtSecret, { expiresIn: '1h' });
+  const customer = await User.create({ name: 'Directory Customer', email: 'directory@example.com', passwordHash: 'hashed', role: 'customer' });
+  const customerToken = jwt.sign({ sub: customer.id }, config.jwtSecret, { expiresIn: '1h' });
+  const partner = await User.create({ name: 'Unapproved Partner', email: 'not-admin@example.com', passwordHash: 'hashed', role: 'partner', partnerStatus: 'approved' });
+  const partnerToken = jwt.sign({ sub: partner.id }, config.jwtSecret, { expiresIn: '1h' });
+  await User.create({ name: 'Pending', email: 'pending-partner@example.com', passwordHash: 'hashed', role: 'partner', partnerStatus: 'pending' });
+  await User.create({ name: 'Approved', email: 'approved-partner@example.com', passwordHash: 'hashed', role: 'partner', partnerStatus: 'approved' });
+  await User.create({ name: 'Rejected', email: 'rejected-partner@example.com', passwordHash: 'hashed', role: 'partner', partnerStatus: 'rejected' });
+  await PickupRequest.create({
+    customer: customer.id,
+    item: { category: 'Electronics', name: 'Laptop', condition: 'Used', quantity: 1 },
+    pickup: { address: '12 Green Street', contactName: 'Directory Customer', contactPhone: '+911234567890' },
+    status: 'Completed', history: [],
+  });
+  await PickupRequest.create({
+    customer: customer.id,
+    item: { category: 'Electronics', name: 'Tablet', condition: 'Used', quantity: 1 },
+    pickup: { address: '12 Green Street', contactName: 'Directory Customer', contactPhone: '+911234567890' },
+    status: 'Submitted', history: [],
+  });
+
+  for (const path of ['/admin/dashboard/stats', '/admin/customers', '/admin/pickups']) {
+    assert.equal((await request(app).get(`/api/v1${path}`)).status, 401);
+    assert.equal((await request(app).get(`/api/v1${path}`).set('Authorization', `Bearer ${customerToken}`)).status, 403);
+    assert.equal((await request(app).get(`/api/v1${path}`).set('Authorization', `Bearer ${partnerToken}`)).status, 403);
+  }
+
+  const stats = await request(app).get('/api/v1/admin/dashboard/stats').set('Authorization', `Bearer ${adminToken}`);
+  assert.equal(stats.status, 200);
+  assert.deepEqual(stats.body.data, {
+    customers: 1, partners: 4, pendingPartners: 1, approvedPartners: 2,
+    rejectedPartners: 1, pickups: 2, completedPickups: 1,
+  });
+
+  const customers = await request(app).get('/api/v1/admin/customers?search=directory').set('Authorization', `Bearer ${adminToken}`);
+  assert.equal(customers.status, 200);
+  assert.equal(customers.body.data.pagination.total, 1);
+  assert.equal(customers.body.data.items[0].email, customer.email);
+  assert.equal('passwordHash' in customers.body.data.items[0], false);
+
+  const pickups = await request(app).get('/api/v1/admin/pickups?search=lap').set('Authorization', `Bearer ${adminToken}`);
+  assert.equal(pickups.status, 200);
+  assert.equal(pickups.body.data.pagination.total, 1);
+  assert.equal(pickups.body.data.items[0].item.name, 'Laptop');
 });
 
 test('customer submission is shared with partner, single claim wins, and transitions are validated', async () => {
