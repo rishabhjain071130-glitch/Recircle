@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const rateLimit = require('express-rate-limit');
+const { createHash, timingSafeEqual } = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
@@ -73,6 +74,43 @@ function escapeRegExp(value) {
 module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
   const router = express.Router();
   router.use((req, _res, next) => { req.models = models; next(); });
+
+  router.post('/admin/provision', async (req, res, next) => {
+    const provisioning = config.adminProvisioningEnabled === true
+      && Buffer.byteLength(config.adminProvisioningSecret || '', 'utf8') >= 32
+      && Boolean(config.adminProvisioningEmail && config.adminProvisioningName && config.adminProvisioningPassword);
+    if (!provisioning) return res.status(404).json({ success: false, error: { message: 'Provisioning is unavailable' } });
+
+    const suppliedSecret = req.get('x-admin-provisioning-secret') || '';
+    const expectedDigest = createHash('sha256').update(config.adminProvisioningSecret, 'utf8').digest();
+    const suppliedDigest = createHash('sha256').update(suppliedSecret, 'utf8').digest();
+    if (!timingSafeEqual(expectedDigest, suppliedDigest)) {
+      return res.status(403).json({ success: false, error: { message: 'Provisioning request is not authorized' } });
+    }
+
+    try {
+      const email = config.adminProvisioningEmail.trim().toLowerCase();
+      const name = config.adminProvisioningName.trim();
+      const password = config.adminProvisioningPassword;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || name.length < 2 || name.length > 100
+        || password.length < 12 || Buffer.byteLength(password, 'utf8') > 72) {
+        return res.status(503).json({ success: false, error: { message: 'Provisioning configuration is invalid' } });
+      }
+      if (await models.User.exists({ role: 'admin' })) {
+        return res.status(409).json({ success: false, error: { message: 'An admin already exists' } });
+      }
+      if (await models.User.exists({ email })) {
+        return res.status(409).json({ success: false, error: { message: 'The configured email is already in use' } });
+      }
+      await models.User.create({ name, email, passwordHash: await bcrypt.hash(password, 12), role: 'admin' });
+      return res.status(201).json({ success: true, data: { message: 'Admin account created' } });
+    } catch (error) {
+      if (error.code === 11000) {
+        return res.status(409).json({ success: false, error: { message: 'An admin already exists or the configured email is already in use' } });
+      }
+      return next(error);
+    }
+  });
 
   router.post('/analysis', auth(config, 'customer'), rateLimit({
     windowMs: 15 * 60 * 1000,

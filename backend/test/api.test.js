@@ -16,6 +16,7 @@ process.env.MONGOMS_DOWNLOAD_DIR = require('node:path').join(__dirname, '..', '.
 let mongo;
 let testDbPath;
 let app;
+let provisionApp;
 let providerBehavior;
 let authTestIp = 1;
 const analysisFixture = {
@@ -26,6 +27,14 @@ const analysisFixture = {
   safetyNotes: ['Do not use a visibly damaged battery.'], explanation: 'A laptop is visible.',
 };
 const config = { jwtSecret: 'test-only-secret-that-is-longer-than-thirty-two-chars', jwtExpiresIn: '1h', corsOrigins: [], partnerSetupKey: 'test-setup-key', demoMode: true };
+const provisionConfig = {
+  ...config,
+  adminProvisioningEnabled: true,
+  adminProvisioningSecret: 'test-provisioning-secret-that-is-at-least-32-bytes-long',
+  adminProvisioningEmail: 'new-admin@example.com',
+  adminProvisioningName: 'New Admin',
+  adminProvisioningPassword: 'provisioned-password-123',
+};
 
 before(async () => {
   testDbPath = await require('node:fs/promises').mkdtemp(require('node:path').join(__dirname, '..', '.mongo-cache', 'api-test-'));
@@ -33,6 +42,7 @@ before(async () => {
   await mongoose.connect(mongo.getUri());
   providerBehavior = async () => analysisFixture;
   app = createApp({ config, models: { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit }, analyzeImage: (...args) => providerBehavior(...args) });
+  provisionApp = createApp({ config: provisionConfig, models: { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit }, analyzeImage: (...args) => providerBehavior(...args) });
 });
 after(async () => {
   await mongoose.disconnect();
@@ -60,6 +70,53 @@ test('health endpoint reports database connectivity', async () => {
   const response = await request(app).get('/api/v1/health');
   assert.equal(response.status, 200);
   assert.deepEqual(response.body.data, { status: 'ok', database: 'connected' });
+});
+
+test('admin provisioning is disabled when its secret is missing', async () => {
+  const disabledApp = createApp({ config: { ...provisionConfig, adminProvisioningSecret: '' }, models: { User } });
+  const response = await request(disabledApp).post('/api/v1/admin/provision').set('x-admin-provisioning-secret', provisionConfig.adminProvisioningSecret).send({});
+  assert.equal(response.status, 404);
+  assert.equal(await User.countDocuments(), 0);
+});
+
+test('admin provisioning rejects an incorrect secret', async () => {
+  const response = await request(provisionApp).post('/api/v1/admin/provision').set('x-admin-provisioning-secret', 'incorrect-secret').send({});
+  assert.equal(response.status, 403);
+  assert.equal(await User.countDocuments(), 0);
+});
+
+test('admin provisioning rejects a missing request secret', async () => {
+  const response = await request(provisionApp).post('/api/v1/admin/provision').send({});
+  assert.equal(response.status, 403);
+  assert.equal(await User.countDocuments(), 0);
+});
+
+test('admin provisioning refuses when an admin already exists', async () => {
+  await User.create({ name: 'Existing Admin', email: 'existing-admin@example.com', passwordHash: 'hash', role: 'admin' });
+  const response = await request(provisionApp).post('/api/v1/admin/provision').set('x-admin-provisioning-secret', provisionConfig.adminProvisioningSecret).send({});
+  assert.equal(response.status, 409);
+  assert.equal(await User.countDocuments({ role: 'admin' }), 1);
+});
+
+test('admin provisioning refuses when the configured email belongs to another user', async () => {
+  await User.create({ name: 'Existing Customer', email: provisionConfig.adminProvisioningEmail, passwordHash: 'hash', role: 'customer' });
+  const response = await request(provisionApp).post('/api/v1/admin/provision').set('x-admin-provisioning-secret', provisionConfig.adminProvisioningSecret).send({});
+  assert.equal(response.status, 409);
+  assert.equal(await User.countDocuments(), 1);
+  assert.equal(await User.countDocuments({ role: 'admin' }), 0);
+});
+
+test('admin provisioning creates one admin and refuses repeated requests', async () => {
+  const first = await request(provisionApp).post('/api/v1/admin/provision').set('x-admin-provisioning-secret', provisionConfig.adminProvisioningSecret).send({ role: 'customer', email: 'attacker@example.com' });
+  assert.equal(first.status, 201);
+  const admin = await User.findOne({ role: 'admin' }).select('+passwordHash');
+  assert.equal(admin.email, provisionConfig.adminProvisioningEmail);
+  assert.equal(admin.name, provisionConfig.adminProvisioningName);
+  assert.equal(admin.active, true);
+  assert.equal(await bcrypt.compare(provisionConfig.adminProvisioningPassword, admin.passwordHash), true);
+  const second = await request(provisionApp).post('/api/v1/admin/provision').set('x-admin-provisioning-secret', provisionConfig.adminProvisioningSecret).send({});
+  assert.equal(second.status, 409);
+  assert.equal(await User.countDocuments({ role: 'admin' }), 1);
 });
 
 test('market rates require backend admin role and expose only published demo sheets', async () => {
