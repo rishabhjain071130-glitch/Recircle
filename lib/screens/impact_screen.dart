@@ -11,6 +11,28 @@ class ImpactScreen extends StatelessWidget {
 
   const ImpactScreen({super.key, required this.appState});
 
+  void _showImpactMethodology(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('How is the impact estimated?'),
+        content: const Text(
+          'ReCircle uses category-level average product weights to estimate '
+          'the amount of e-waste represented by items marked for reuse. '
+          'This is an estimate, not a physical measurement or a verified '
+          'landfill diversion record. The estimate becomes more accurate '
+          'when actual item weights are collected.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final stats = appState.impactStats;
@@ -39,7 +61,6 @@ class ImpactScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title Header
             Row(
               children: [
                 Container(
@@ -89,14 +110,13 @@ class ImpactScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Text(
-                'Demo totals · not measured or independently verified',
+                'Demo totals · impact is estimated, not physically measured',
                 style: TextStyle(fontSize: 12, color: AppTheme.darkText),
               ),
             ),
 
             const SizedBox(height: 20),
 
-            // Main Impact Numbers Card
             ImpactCard(
               stats: stats,
               onTap: () {
@@ -109,9 +129,15 @@ class ImpactScreen extends StatelessWidget {
               },
             ),
 
+            const SizedBox(height: 16),
+
+            EnvironmentalImpactCard(
+              estimatedWasteDivertedKg: stats.estimatedWasteDivertedKg,
+              onInfoTap: () => _showImpactMethodology(context),
+            ),
+
             const SizedBox(height: 28),
 
-            // Circular Graphic Section
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(22),
@@ -146,8 +172,6 @@ class ImpactScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // Circular Visual Journey
                   _buildJourneyGraphic(),
                 ],
               ),
@@ -155,7 +179,6 @@ class ImpactScreen extends StatelessWidget {
 
             const SizedBox(height: 24),
 
-            // Reuse First Principle Banner
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
