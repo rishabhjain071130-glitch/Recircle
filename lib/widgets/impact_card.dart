@@ -92,6 +92,116 @@ class ImpactCard extends StatelessWidget {
   }
 }
 
+class EnvironmentalImpactCard extends StatelessWidget {
+  final double estimatedWasteDivertedKg;
+  final VoidCallback? onInfoTap;
+
+  const EnvironmentalImpactCard({
+    super.key,
+    required this.estimatedWasteDivertedKg,
+    this.onInfoTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final formattedWeight = estimatedWasteDivertedKg >= 10
+        ? estimatedWasteDivertedKg.toStringAsFixed(1)
+        : estimatedWasteDivertedKg.toStringAsFixed(2);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFEAF5EA), Color(0xFFF7FBF7)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppTheme.primaryGreen.withValues(alpha: 0.14),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.eco_rounded,
+              color: AppTheme.primaryGreen,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Estimated Waste Diverted',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.darkText,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      formattedWeight,
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.primaryGreen,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        'kg',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.subtitleGrey,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Estimated from the category of items marked for reuse.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: AppTheme.subtitleGrey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onInfoTap,
+            tooltip: 'How is this estimated?',
+            icon: const Icon(
+              Icons.info_outline_rounded,
+              color: AppTheme.primaryGreen,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ImpactMetric extends StatelessWidget {
   final IconData icon;
   final String value;
