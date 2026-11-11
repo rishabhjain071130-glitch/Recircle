@@ -23,6 +23,7 @@ class AppState extends ChangeNotifier {
     itemsRecycled: 0,
     pickupsCompleted: 0,
     rewardPoints: 0,
+    estimatedWasteDivertedKg: 0,
   );
   final List<RewardActivity> _rewardActivities = [];
   final Set<String> _savedReuseIdeaIds = {};
@@ -211,12 +212,36 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  double _estimatedWeightKgForCategory(String category) {
+    final value = category.toLowerCase();
+
+    if (value.contains('phone') || value.contains('mobile')) return 0.1;
+    if (value.contains('tablet')) return 0.6;
+    if (value.contains('laptop') || value.contains('notebook')) return 2.9;
+    if (value.contains('desktop')) return 10.0;
+    if (value.contains('monitor')) return 11.2;
+    if (value.contains('tv') || value.contains('television')) return 9.8;
+    if (value.contains('printer') || value.contains('scanner')) return 7.9;
+    if (value.contains('keyboard')) return 1.3;
+    if (value.contains('mouse')) return 0.1;
+    if (value.contains('battery')) return 0.5;
+    if (value.contains('cable') || value.contains('accessory')) return 0.2;
+
+    // Conservative fallback for categories without a known average weight.
+    return 1.0;
+  }
+
   void markItemAsReused(ReuseIdea idea) {
     const pointsEarned = 20;
+    final estimatedWeightKg = _estimatedWeightKgForCategory(idea.category);
+
     _impactStats = _impactStats.copyWith(
       itemsReused: _impactStats.itemsReused + 1,
       rewardPoints: _impactStats.rewardPoints + pointsEarned,
+      estimatedWasteDivertedKg:
+          _impactStats.estimatedWasteDivertedKg + estimatedWeightKg,
     );
+
     _rewardActivities.insert(
       0,
       RewardActivity(
@@ -224,7 +249,9 @@ class AppState extends ChangeNotifier {
         category: idea.category,
         points: pointsEarned,
         date: DateTime.now(),
-        note: 'Demo points only. No reward has been verified or issued.',
+        note:
+            'Demo points only. No reward has been verified or issued. '
+            'Impact uses an estimated category weight.',
       ),
     );
     notifyListeners();
