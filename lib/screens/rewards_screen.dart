@@ -61,7 +61,7 @@ class RewardsScreen extends StatelessWidget {
                   const Icon(Icons.stars, color: Colors.amber, size: 44),
                   const SizedBox(height: 8),
                   const Text(
-                    'Reward Points',
+                    'Demo Points Balance',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 14,

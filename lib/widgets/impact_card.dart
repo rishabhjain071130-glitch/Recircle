@@ -71,7 +71,7 @@ class ImpactCard extends StatelessWidget {
                     child: _ImpactMetric(
                       icon: Icons.stars_outlined,
                       value: '${stats.rewardPoints}',
-                      label: 'Reward Points',
+                      label: 'Demo Points',
                     ),
                   ),
                 ],
@@ -94,11 +94,17 @@ class ImpactCard extends StatelessWidget {
 
 class EnvironmentalImpactCard extends StatelessWidget {
   final double estimatedWasteDivertedKg;
+  final int itemsReused;
+  final int itemsRecycled;
+  final int? pickupsCompleted;
   final VoidCallback? onInfoTap;
 
   const EnvironmentalImpactCard({
     super.key,
     required this.estimatedWasteDivertedKg,
+    required this.itemsReused,
+    required this.itemsRecycled,
+    this.pickupsCompleted,
     this.onInfoTap,
   });
 
@@ -122,27 +128,26 @@ class EnvironmentalImpactCard extends StatelessWidget {
           color: AppTheme.primaryGreen.withValues(alpha: 0.14),
         ),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.eco_rounded,
-              color: AppTheme.primaryGreen,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.eco_rounded,
+                  color: AppTheme.primaryGreen,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
                   'Estimated Waste Diverted',
                   style: TextStyle(
                     fontSize: 15,
@@ -150,51 +155,62 @@ class EnvironmentalImpactCard extends StatelessWidget {
                     color: AppTheme.darkText,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      formattedWeight,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        color: AppTheme.primaryGreen,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        'kg',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.subtitleGrey,
-                        ),
-                      ),
-                    ),
-                  ],
+              ),
+              IconButton(
+                onPressed: onInfoTap,
+                tooltip: 'How is this estimated?',
+                icon: const Icon(
+                  Icons.info_outline_rounded,
+                  color: AppTheme.primaryGreen,
                 ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Estimated from the category of items marked for reuse.',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                formattedWeight,
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.primaryGreen,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'kg',
                   style: TextStyle(
-                    fontSize: 12,
-                    height: 1.35,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                     color: AppTheme.subtitleGrey,
                   ),
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Estimated from category-level average product weights.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: AppTheme.subtitleGrey,
             ),
           ),
-          IconButton(
-            onPressed: onInfoTap,
-            tooltip: 'How is this estimated?',
-            icon: const Icon(
-              Icons.info_outline_rounded,
-              color: AppTheme.primaryGreen,
-            ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 14,
+            runSpacing: 6,
+            children: [
+              Text('Items reused: $itemsReused'),
+              Text('Items recycled: $itemsRecycled'),
+              if (pickupsCompleted != null)
+                Text('Completed pickups: $pickupsCompleted'),
+            ],
           ),
         ],
       ),

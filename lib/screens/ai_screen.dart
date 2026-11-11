@@ -49,6 +49,7 @@ class _AIScreenState extends State<AIScreen> {
   ItemAnalysisResult? _result;
   String? _error;
   bool _isBusy = false;
+  String? _impactOutcome;
 
   @override
   void initState() {
@@ -137,6 +138,7 @@ class _AIScreenState extends State<AIScreen> {
       if (!mounted) return;
       setState(() {
         _result = result;
+        _impactOutcome = null;
         _isBusy = false;
       });
     } catch (error) {
@@ -185,9 +187,37 @@ class _AIScreenState extends State<AIScreen> {
     setState(() {
       _image = null;
       _result = null;
+      _impactOutcome = null;
       _error = null;
       _isBusy = false;
     });
+  }
+
+  void _markAnalyzedItem({required bool reused}) {
+    final result = _result;
+    if (result == null || _impactOutcome != null) return;
+    final category = result.category.label;
+    if (reused) {
+      widget.appState.markAnalyzedItemAsReused(
+        itemName: result.itemName,
+        category: category,
+      );
+    } else {
+      widget.appState.markAnalyzedItemAsRecycled(
+        itemName: result.itemName,
+        category: category,
+      );
+    }
+    setState(() => _impactOutcome = reused ? 'reused' : 'recycled');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          reused
+              ? 'Added to your estimated reuse impact.'
+              : 'Added to your estimated recycling impact.',
+        ),
+      ),
+    );
   }
 
   void _openReuseGuide(int index) {
@@ -197,8 +227,12 @@ class _AIScreenState extends State<AIScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            ReuseDetailScreen(idea: idea, appState: widget.appState),
+        builder: (_) => ReuseDetailScreen(
+          idea: idea,
+          appState: widget.appState,
+          impactItemName: result.itemName,
+          impactCategory: result.category.label,
+        ),
       ),
     );
   }
@@ -508,6 +542,35 @@ class _AIScreenState extends State<AIScreen> {
           ),
         ),
       ],
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: _impactOutcome == null
+                ? () => _markAnalyzedItem(reused: true)
+                : null,
+            icon: const Icon(Icons.eco_outlined),
+            label: Text(
+              _impactOutcome == 'reused'
+                  ? 'Marked as reused'
+                  : 'Mark as reused',
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: _impactOutcome == null
+                ? () => _markAnalyzedItem(reused: false)
+                : null,
+            icon: const Icon(Icons.recycling_outlined),
+            label: Text(
+              _impactOutcome == 'recycled'
+                  ? 'Marked for recycling'
+                  : 'Mark for recycling',
+            ),
+          ),
+        ],
+      ),
       const SizedBox(height: 10),
       SizedBox(
         width: double.infinity,

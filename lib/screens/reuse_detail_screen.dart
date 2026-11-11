@@ -8,11 +8,15 @@ import '../widgets/recircle_branding.dart';
 class ReuseDetailScreen extends StatefulWidget {
   final ReuseIdea idea;
   final AppState appState;
+  final String? impactItemName;
+  final String? impactCategory;
 
   const ReuseDetailScreen({
     super.key,
     required this.idea,
     required this.appState,
+    this.impactItemName,
+    this.impactCategory,
   });
 
   @override
@@ -27,7 +31,11 @@ class _ReuseDetailScreenState extends State<ReuseDetailScreen> {
     setState(() {
       _isReused = true;
     });
-    widget.appState.markItemAsReused(widget.idea);
+    widget.appState.markItemAsReused(
+      widget.idea,
+      itemName: widget.impactItemName,
+      category: widget.impactCategory,
+    );
 
     showModalBottomSheet(
       context: context,
@@ -100,9 +108,8 @@ class _ReuseDetailScreenState extends State<ReuseDetailScreen> {
             tooltip: widget.appState.isReuseIdeaSaved(idea.id)
                 ? 'Remove saved idea'
                 : 'Save idea',
-            onPressed: () => setState(
-              () => widget.appState.toggleSavedReuseIdea(idea.id),
-            ),
+            onPressed: () =>
+                setState(() => widget.appState.toggleSavedReuseIdea(idea.id)),
             icon: Icon(
               widget.appState.isReuseIdeaSaved(idea.id)
                   ? Icons.bookmark

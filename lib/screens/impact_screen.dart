@@ -17,11 +17,10 @@ class ImpactScreen extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('How is the impact estimated?'),
         content: const Text(
-          'ReCircle uses category-level average product weights to estimate '
-          'the amount of e-waste represented by items marked for reuse. '
-          'This is an estimate, not a physical measurement or a verified '
-          'landfill diversion record. The estimate becomes more accurate '
-          'when actual item weights are collected.',
+          'This value is an estimate based on category-level average product '
+          'weights for items marked reused or for recycling. It is not a '
+          'physical measurement, and it does not prove that a specific amount '
+          'of waste reached a recycling facility or was diverted from landfill.',
         ),
         actions: [
           TextButton(
@@ -133,6 +132,9 @@ class ImpactScreen extends StatelessWidget {
 
             EnvironmentalImpactCard(
               estimatedWasteDivertedKg: stats.estimatedWasteDivertedKg,
+              itemsReused: stats.itemsReused,
+              itemsRecycled: stats.itemsRecycled,
+              pickupsCompleted: stats.pickupsCompleted,
               onInfoTap: () => _showImpactMethodology(context),
             ),
 

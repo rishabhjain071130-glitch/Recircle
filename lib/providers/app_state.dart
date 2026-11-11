@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 import '../models/pickup.dart';
 import '../models/impact_stats.dart';
+import '../models/ewaste_weight_estimates.dart';
 import '../models/reuse_idea.dart';
 import '../features/requests/data/recircle_api.dart';
 
@@ -30,7 +31,11 @@ class AppState extends ChangeNotifier {
 
   User get user => _user;
   List<Pickup> get pickups => List.unmodifiable(_pickups);
-  ImpactStats get impactStats => _impactStats;
+  ImpactStats get impactStats => _impactStats.copyWith(
+    pickupsCompleted: _pickups
+        .where((pickup) => pickup.status == PickupStatus.completed)
+        .length,
+  );
   List<RewardActivity> get rewardActivities =>
       List.unmodifiable(_rewardActivities);
   bool isReuseIdeaSaved(String ideaId) => _savedReuseIdeaIds.contains(ideaId);
@@ -92,6 +97,8 @@ class AppState extends ChangeNotifier {
     await api.clearToken();
     currentRole = null;
     _pickups.clear();
+    _impactStats = const ImpactStats();
+    _rewardActivities.clear();
     requestError = null;
     notifyListeners();
   }
@@ -212,32 +219,39 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  double _estimatedWeightKgForCategory(String category) {
-    final value = category.toLowerCase();
-
-    if (value.contains('phone') || value.contains('mobile')) return 0.1;
-    if (value.contains('tablet')) return 0.6;
-    if (value.contains('laptop') || value.contains('notebook')) return 2.9;
-    if (value.contains('desktop')) return 10.0;
-    if (value.contains('monitor')) return 11.2;
-    if (value.contains('tv') || value.contains('television')) return 9.8;
-    if (value.contains('printer') || value.contains('scanner')) return 7.9;
-    if (value.contains('keyboard')) return 1.3;
-    if (value.contains('mouse')) return 0.1;
-    if (value.contains('battery')) return 0.5;
-    if (value.contains('cable') || value.contains('accessory')) return 0.2;
-
-    // Conservative fallback for categories without a known average weight.
-    return 1.0;
+  void markItemAsReused(ReuseIdea idea, {String? itemName, String? category}) {
+    _recordItemImpact(
+      itemName: itemName ?? idea.title,
+      category: category ?? idea.category,
+      reused: true,
+    );
   }
 
-  void markItemAsReused(ReuseIdea idea) {
-    const pointsEarned = 20;
-    final estimatedWeightKg = _estimatedWeightKgForCategory(idea.category);
+  void markAnalyzedItemAsReused({
+    required String itemName,
+    required String category,
+  }) => _recordItemImpact(itemName: itemName, category: category, reused: true);
 
+  void markAnalyzedItemAsRecycled({
+    required String itemName,
+    required String category,
+  }) =>
+      _recordItemImpact(itemName: itemName, category: category, reused: false);
+
+  void _recordItemImpact({
+    required String itemName,
+    required String category,
+    required bool reused,
+  }) {
+    const pointsEarned = 20;
+    final estimatedWeightKg = EwasteWeightEstimates.estimateKg(
+      category: category,
+      itemName: itemName,
+    );
     _impactStats = _impactStats.copyWith(
-      itemsReused: _impactStats.itemsReused + 1,
-      rewardPoints: _impactStats.rewardPoints + pointsEarned,
+      itemsReused: _impactStats.itemsReused + (reused ? 1 : 0),
+      itemsRecycled: _impactStats.itemsRecycled + (reused ? 0 : 1),
+      rewardPoints: _impactStats.rewardPoints + (reused ? pointsEarned : 0),
       estimatedWasteDivertedKg:
           _impactStats.estimatedWasteDivertedKg + estimatedWeightKg,
     );
@@ -245,13 +259,15 @@ class AppState extends ChangeNotifier {
     _rewardActivities.insert(
       0,
       RewardActivity(
-        title: 'Reused: ${idea.title}',
-        category: idea.category,
-        points: pointsEarned,
+        title: '${reused ? 'Reused' : 'Marked for recycling'}: $itemName',
+        category: category,
+        points: reused ? pointsEarned : 0,
         date: DateTime.now(),
-        note:
-            'Demo points only. No reward has been verified or issued. '
-            'Impact uses an estimated category weight.',
+        note: reused
+            ? 'Demo points only. No reward has been verified or issued. '
+                  'Impact uses an estimated category weight.'
+            : 'Impact uses an estimated category weight. Recycling or '
+                  'facility delivery has not been verified.',
       ),
     );
     notifyListeners();
