@@ -151,7 +151,16 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
         ...(manualCategory ? { category: manualCategory } : {}),
       };
       stage = 'persistence';
-      const record = await models.AnalysisRecord.create({ user: req.user.id, result });
+      let record;
+      try {
+        record = await models.AnalysisRecord.create({ user: req.user.id, result });
+      } catch (_error) {
+        const error = new Error('Analysis could not be saved. Please retry.');
+        error.status = 503;
+        error.code = 'ANALYSIS_STORAGE_UNAVAILABLE';
+        error.stage = 'persistence';
+        throw error;
+      }
       res.status(201).json({ success: true, data: { ...result, analysisId: record.id, analyzedAt: record.createdAt } });
     } catch (error) {
       error.stage ||= stage;

@@ -20,6 +20,27 @@ import 'package:recircle/screens/pickup_booking_screen.dart';
 import 'package:recircle/theme/app_theme.dart';
 
 void main() {
+  test('backend image service rejects bad signatures before upload', () async {
+    final api = _FixedAnalysisApi();
+    final invalidImage = XFile.fromData(
+      Uint8List.fromList([1, 2, 3, 4]),
+      name: 'not-a-photo.jpg',
+      mimeType: 'image/jpeg',
+    );
+
+    await expectLater(
+      BackendItemAnalysisService(api).analyze(image: invalidImage),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.message,
+          'message',
+          contains('image format is not supported'),
+        ),
+      ),
+    );
+    expect(api.mimeType, isNull);
+  });
+
   test(
     'backend analysis maps structured results without mock fallback',
     () async {

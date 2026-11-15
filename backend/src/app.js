@@ -54,9 +54,16 @@ function createApp({ config = getConfig(), models, analyzeImage } = {}) {
     const message = status === 413
       ? 'The image is too large. Choose an image under 8 MB.'
       : status >= 500
-        ? (err instanceof GeminiProviderError ? err.message : 'Internal server error')
+        ? (err instanceof GeminiProviderError || err.code === 'ANALYSIS_STORAGE_UNAVAILABLE'
+          ? err.message
+          : 'Internal server error')
         : err.message;
-    const code = err.code || ({ quota: 'GEMINI_QUOTA', model_unavailable: 'GEMINI_MODEL_UNAVAILABLE', invalid_image: 'INVALID_IMAGE' }[err.category]);
+    const code = err.code || ({
+      quota: 'GEMINI_QUOTA',
+      model_unavailable: 'GEMINI_MODEL_UNAVAILABLE',
+      invalid_image: 'INVALID_IMAGE',
+      safety_blocked: 'GEMINI_SAFETY_BLOCK',
+    }[err.category]);
     res.status(status).json({ success: false, error: { message, ...(code ? { code } : {}), ...(err.details ? { details: err.details } : {}) }, requestId: req.requestId });
   });
   return app;

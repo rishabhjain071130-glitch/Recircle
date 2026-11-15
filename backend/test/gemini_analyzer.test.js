@@ -35,6 +35,40 @@ test('sends inline image data to the configured Gemini model and parses structur
   assert.equal(Object.hasOwn(payload.generationConfig, 'temperature'), false);
 });
 
+test('accepts fenced JSON and supplies only conservative defaults for omitted optional fields', async () => {
+  const minimal = {
+    itemName: 'Laptop',
+    category: 'electronics',
+    recyclingRecommendation: 'Check local e-waste guidance.',
+    explanation: 'A laptop is visible.',
+  };
+  const analyze = createGeminiAnalyzer(
+    { geminiApiKey: 'test-key', geminiModel: 'gemini-3.8-flash' },
+    async () => response({ candidates: [{ content: { parts: [{ text: `\`\`\`json\n${JSON.stringify(minimal)}\n\`\`\`` }] } }] }),
+  );
+
+  const actual = await analyze({ image: Buffer.from([1]), mimeType: 'image/jpeg' });
+  assert.equal(actual.itemName, 'Laptop');
+  assert.deepEqual(actual.likelyMaterials, []);
+  assert.equal(actual.visibleCondition, 'unknown');
+  assert.equal(actual.reusePotential, 'uncertain');
+  assert.equal(actual.confidence, undefined);
+  assert.deepEqual(actual.reuseSuggestions, []);
+  assert.match(actual.uncertaintyNotes[0], /omitted/);
+  assert.match(actual.safetyNotes[0], /could not be assessed/);
+});
+
+test('safety-blocked Gemini responses become a specific safe result error', async () => {
+  const analyze = createGeminiAnalyzer(
+    { geminiApiKey: 'test-key', geminiModel: 'gemini-3.8-flash' },
+    async () => response({ promptFeedback: { blockReason: 'SAFETY' } }),
+  );
+  await assert.rejects(
+    analyze({ image: Buffer.from([1]), mimeType: 'image/jpeg' }),
+    (error) => error.status === 422 && error.category === 'safety_blocked' && /safety filter/.test(error.message),
+  );
+});
+
 test('missing key and provider failures become safe, actionable errors', async () => {
   await assert.rejects(
     createGeminiAnalyzer({ geminiApiKey: '', geminiModel: 'gemini-3.8-flash' })({ image: Buffer.from([1]), mimeType: 'image/png' }),

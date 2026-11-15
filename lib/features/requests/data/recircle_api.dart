@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -33,7 +34,10 @@ class ReCircleApi {
   static String resolveBaseUrl(String configured, {required bool debugMode}) {
     final value = configured.trim();
     if (value.isNotEmpty) return value.replaceFirst(RegExp(r'/+$'), '');
-    return debugMode ? 'http://10.0.2.2:3000/api/v1' : productionBaseUrl;
+    // Default both debug and release installs to the hosted API so a physical
+    // phone never inherits the Android emulator's loopback-only address.
+    // Local development remains opt-in through --dart-define=API_BASE_URL=...
+    return productionBaseUrl;
   }
 
   static String get baseUrl =>
@@ -73,6 +77,9 @@ class ReCircleApi {
     if (kReleaseMode && uri.scheme != 'https') {
       return 'Release builds require an HTTPS API_BASE_URL.';
     }
+    if (kReleaseMode && value != productionBaseUrl) {
+      return 'Release builds must use $productionBaseUrl.';
+    }
     if (!kReleaseMode && !{'http', 'https'}.contains(uri.scheme)) {
       return 'API_BASE_URL must use HTTP or HTTPS.';
     }
@@ -111,6 +118,8 @@ class ReCircleApi {
     required String mimeType,
     String? manualCategory,
   }) async {
+    final stopwatch = Stopwatch()..start();
+    debugPrint('ReCircle API POST /analysis started');
     final headers = <String, String>{
       'Accept': 'application/json',
       'Content-Type': mimeType,
@@ -123,21 +132,58 @@ class ReCircleApi {
       final request = http.Request('POST', Uri.parse('$_baseUrl/analysis'))
         ..headers.addAll(headers)
         ..bodyBytes = image;
-      final streamed = await _client
+      final response = await _client
           .send(request)
-          .timeout(const Duration(seconds: 40));
-      final response = await http.Response.fromStream(streamed)
-          .timeout(const Duration(seconds: 40));
+          .then(http.Response.fromStream)
+          .timeout(const Duration(seconds: 120));
+      stopwatch.stop();
+      debugPrint(
+        'ReCircle API POST /analysis completed '
+        'status=${response.statusCode} elapsedMs=${stopwatch.elapsedMilliseconds}',
+      );
       return await _decodeResponse(response);
     } on TimeoutException {
+      stopwatch.stop();
+      debugPrint(
+        'ReCircle API POST /analysis failed '
+        'type=timeout elapsedMs=${stopwatch.elapsedMilliseconds}',
+      );
       throw const ApiException(
-        'Image analysis timed out. Check the connection and retry.',
+        'The hosted analysis service may still be starting. Wait a moment and retry.',
       );
     } on http.ClientException {
+      stopwatch.stop();
+      debugPrint(
+        'ReCircle API POST /analysis failed '
+        'type=connection elapsedMs=${stopwatch.elapsedMilliseconds}',
+      );
       throw const ApiException(
-        'Could not reach ReCircle server. Check the API address and network.',
+        'Could not reach the ReCircle analysis service. Check your connection and retry.',
+      );
+    } on SocketException {
+      stopwatch.stop();
+      debugPrint(
+        'ReCircle API POST /analysis failed '
+        'type=connection elapsedMs=${stopwatch.elapsedMilliseconds}',
+      );
+      throw const ApiException(
+        'Could not reach the ReCircle analysis service. Check your connection and retry.',
+      );
+    } on HandshakeException {
+      stopwatch.stop();
+      debugPrint(
+        'ReCircle API POST /analysis failed '
+        'type=secure_connection elapsedMs=${stopwatch.elapsedMilliseconds}',
+      );
+      throw const ApiException(
+        'Could not establish a secure connection to ReCircle. Check your connection and device date and time.',
       );
     } on FormatException {
+      stopwatch.stop();
+      debugPrint(
+        'ReCircle API POST /analysis failed '
+        'type=invalid_response elapsedMs=${stopwatch.elapsedMilliseconds}',
+      );
       throw const ApiException('The server returned an invalid response.');
     }
   }
@@ -156,19 +202,26 @@ class ReCircleApi {
     try {
       final request = http.Request(method, uri)..headers.addAll(headers);
       if (body != null) request.body = jsonEncode(body);
-      final streamed = await _client
+      final response = await _client
           .send(request)
-          .timeout(const Duration(seconds: 15));
-      final response = await http.Response.fromStream(streamed)
-          .timeout(const Duration(seconds: 15));
+          .then(http.Response.fromStream)
+          .timeout(const Duration(seconds: 120));
       return await _decodeResponse(response);
     } on TimeoutException {
       throw const ApiException(
-        'The server took too long to respond. Check the connection and retry.',
+        'The hosted server may still be starting. Wait a moment and retry.',
       );
     } on http.ClientException {
       throw const ApiException(
         'Could not reach ReCircle server. Check the API address and network.',
+      );
+    } on SocketException {
+      throw const ApiException(
+        'Could not reach ReCircle server. Check the API address and network.',
+      );
+    } on HandshakeException {
+      throw const ApiException(
+        'Could not establish a secure connection to ReCircle. Check your connection and device date and time.',
       );
     } on FormatException {
       throw const ApiException('The server returned an invalid response.');
@@ -176,10 +229,25 @@ class ReCircleApi {
   }
 
   Future<dynamic> _decodeResponse(http.Response response) async {
-    final decoded = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode == 401 && _token != null) await clearToken();
+    final isAnalysisRequest =
+        response.request?.url.path.endsWith('/analysis') ?? false;
+    final hadToken = _token != null;
+    Map<String, dynamic> decoded;
+    try {
+      final body = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(response.body);
+      if (body is! Map) throw const FormatException('Expected a JSON object');
+      decoded = body.cast<String, dynamic>();
+    } on FormatException {
+      final message = isAnalysisRequest && response.statusCode == 503
+          ? 'The hosted analysis service is starting. Wait about a minute and retry.'
+          : isAnalysisRequest
+          ? 'The analysis service returned an unreadable response. Please retry.'
+          : 'The server returned an invalid response.';
+      throw ApiException(message, statusCode: response.statusCode);
+    }
+    if (response.statusCode == 401 && hadToken) await clearToken();
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
         decoded['success'] != true) {
@@ -193,6 +261,9 @@ class ReCircleApi {
         'GEMINI_QUOTA' => 'Image analysis is busy. Please wait and retry.',
         'GEMINI_MODEL_UNAVAILABLE' =>
           'Image analysis is temporarily unavailable. Please retry later.',
+        'GEMINI_SAFETY_BLOCK' => 'The image could not be analyzed by the safety filter. Choose another image and retry.',
+        'ANALYSIS_STORAGE_UNAVAILABLE' =>
+          'Analysis could not be saved. Check your connection and retry.',
         'INVALID_IMAGE' => 'This image could not be analyzed. Choose a JPG, PNG, or WebP photo and retry.',
         _ => switch (response.statusCode) {
           400 =>
@@ -200,9 +271,13 @@ class ReCircleApi {
                 ? error['message'] as String
                 : 'Check the information you entered and try again.',
           401 =>
-            _token == null
-                ? 'Email or password is incorrect.'
-                : 'Your session expired. Sign in again to analyze this item.',
+            !hadToken
+                ? isAnalysisRequest
+                      ? 'Sign in to your ReCircle account to analyze this item.'
+                      : 'Email or password is incorrect.'
+                : isAnalysisRequest
+                ? 'Your session expired. Sign in again to analyze this item.'
+                : 'Your session expired. Sign in again to continue.',
           403 => 'This account cannot analyze images.',
           413 =>
             isAnalysisRequest

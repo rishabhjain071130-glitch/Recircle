@@ -15,7 +15,7 @@ const fixture = {
   recyclingRecommendation: 'Check local guidance.', safetyNotes: [], explanation: 'A lamp is visible.',
 };
 
-function createHarness() {
+function createHarness({ createFailure } = {}) {
   const records = [];
   const User = {
     findById(id) {
@@ -25,6 +25,7 @@ function createHarness() {
   };
   const AnalysisRecord = {
     async create({ user, result }) {
+      if (createFailure) throw createFailure;
       const record = { _id: new mongoose.Types.ObjectId(), user, result, createdAt: new Date() };
       record.id = record._id.toString();
       records.push(record);
@@ -47,10 +48,29 @@ function createHarness() {
   app.use(express.raw({ type: 'image/*', limit: '8mb' }));
   app.use('/api/v1', createRoutes({ User, AnalysisRecord }, config, { analyzeImage: async () => fixture }));
   app.use((_req, res) => res.status(404).json({ success: false, error: { message: 'Route not found' } }));
-  app.use((error, _req, res, _next) => res.status(error.status || 500).json({ success: false, error: { message: error.message } }));
+  app.use((error, _req, res, _next) => res.status(error.status || 500).json({
+    success: false,
+    error: { message: error.message, ...(error.code ? { code: error.code } : {}) },
+  }));
   const token = (sub) => jwt.sign({ sub, role: 'customer' }, config.jwtSecret, { expiresIn: '1h' });
   return { app, records, token };
 }
+
+test('analysis persistence failures return a sanitized retryable error', async () => {
+  const { app, token } = createHarness({
+    createFailure: new Error('private database connection string'),
+  });
+  const response = await request(app)
+    .post('/api/v1/analysis')
+    .set('Authorization', `Bearer ${token(userId)}`)
+    .set('Content-Type', 'image/jpeg')
+    .send(Buffer.from([0xff, 0xd8, 0xff, 1]));
+
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error.code, 'ANALYSIS_STORAGE_UNAVAILABLE');
+  assert.equal(response.body.error.message, 'Analysis could not be saved. Please retry.');
+  assert.equal(response.body.error.message.includes('private'), false);
+});
 
 test('successful authenticated analysis is persisted and appears in paginated history and detail', async () => {
   const { app, records, token } = createHarness();

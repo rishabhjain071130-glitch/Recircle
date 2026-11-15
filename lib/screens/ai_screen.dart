@@ -48,6 +48,7 @@ class _AIScreenState extends State<AIScreen> {
   XFile? _image;
   ItemAnalysisResult? _result;
   String? _error;
+  String? _errorTitle;
   bool _isBusy = false;
   String? _impactOutcome;
 
@@ -96,6 +97,7 @@ class _AIScreenState extends State<AIScreen> {
     setState(() {
       _isBusy = true;
       _error = null;
+      _errorTitle = null;
       _result = null;
       _image = null;
     });
@@ -114,12 +116,16 @@ class _AIScreenState extends State<AIScreen> {
       setState(() {
         _isBusy = false;
         _error = error.message;
+        _errorTitle = error.permissionDenied
+            ? 'Permission denied'
+            : 'Could not use this image';
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _isBusy = false;
         _error = 'We could not open that image. Try another photo or choose a different source.';
+        _errorTitle = 'Could not use this image';
       });
     }
   }
@@ -128,6 +134,7 @@ class _AIScreenState extends State<AIScreen> {
     setState(() {
       _isBusy = true;
       _error = null;
+      _errorTitle = null;
       _result = null;
     });
     try {
@@ -148,6 +155,7 @@ class _AIScreenState extends State<AIScreen> {
         _error = error is ApiException
             ? error.message
             : 'Analysis did not finish. Retry with this image.';
+        _errorTitle = 'Could not analyze this image';
       });
     }
   }
@@ -189,6 +197,7 @@ class _AIScreenState extends State<AIScreen> {
       _result = null;
       _impactOutcome = null;
       _error = null;
+      _errorTitle = null;
       _isBusy = false;
     });
   }
@@ -306,14 +315,14 @@ class _AIScreenState extends State<AIScreen> {
               ],
               if (_isBusy) ...[
                 const SizedBox(height: 16),
-                const AppLoadingView(message: 'Analyzing your item…'),
+                const AppLoadingView(
+                  message: 'Analyzing your item… the hosted service may need up to a minute to wake.',
+                ),
               ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 AppMessageView(
-                  title: _error!.contains('declined')
-                      ? 'Permission denied'
-                      : 'Could not use this image',
+                  title: _errorTitle ?? 'Could not use this image',
                   message: _error!,
                   icon: _error!.contains('declined')
                       ? Icons.no_photography_outlined

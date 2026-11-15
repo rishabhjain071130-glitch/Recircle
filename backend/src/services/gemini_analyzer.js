@@ -3,11 +3,11 @@ const { z } = require('zod');
 const analysisSchema = z.object({
   itemName: z.string().trim().min(1).max(120),
   category: z.enum(['plastic', 'paper', 'cardboard', 'glass', 'metal', 'electronics', 'textiles', 'mixedMaterials', 'unknown']),
-  likelyMaterials: z.array(z.string().trim().min(1).max(80)).max(8),
-  visibleCondition: z.enum(['good', 'worn', 'damaged', 'unknown']),
-  reusePotential: z.enum(['promising', 'uncertain', 'unlikely']),
-  confidence: z.number().min(0).max(1),
-  uncertaintyNotes: z.array(z.string().trim().min(1).max(240)).max(6),
+  likelyMaterials: z.array(z.string().trim().min(1).max(80)).max(8).default([]),
+  visibleCondition: z.enum(['good', 'worn', 'damaged', 'unknown']).default('unknown'),
+  reusePotential: z.enum(['promising', 'uncertain', 'unlikely']).default('uncertain'),
+  confidence: z.number().min(0).max(1).optional(),
+  uncertaintyNotes: z.array(z.string().trim().min(1).max(240)).max(6).default([]),
   reuseSuggestions: z.array(z.object({
     title: z.string().trim().min(1).max(100),
     shortDescription: z.string().trim().min(1).max(240),
@@ -17,9 +17,9 @@ const analysisSchema = z.object({
     materialsNeeded: z.array(z.string().trim().min(1).max(100)).max(10),
     steps: z.array(z.string().trim().min(1).max(240)).max(10),
     iconName: z.string().trim().max(40),
-  }).strict()).max(4),
+  }).strict()).max(4).default([]),
   recyclingRecommendation: z.string().trim().min(1).max(500),
-  safetyNotes: z.array(z.string().trim().min(1).max(240)).max(8),
+  safetyNotes: z.array(z.string().trim().min(1).max(240)).max(8).default([]),
   explanation: z.string().trim().min(1).max(500),
 }).strict();
 
@@ -50,7 +50,7 @@ const responseSchema = {
     safetyNotes: { type: 'ARRAY', items: { type: 'STRING' } },
     explanation: { type: 'STRING' },
   },
-  required: ['itemName', 'category', 'likelyMaterials', 'visibleCondition', 'reusePotential', 'confidence', 'uncertaintyNotes', 'reuseSuggestions', 'recyclingRecommendation', 'safetyNotes', 'explanation'],
+  required: ['itemName', 'category', 'recyclingRecommendation', 'explanation'],
 };
 
 class GeminiProviderError extends Error {
@@ -64,8 +64,8 @@ class GeminiProviderError extends Error {
   }
 }
 
-// Two bounded attempts plus at most four seconds of backoff fit the Flutter
-// client's 40-second request deadline, including response and persistence work.
+// Two bounded attempts plus at most four seconds of backoff leave time for
+// Render's free-tier cold start and database persistence in the Flutter client.
 const ATTEMPT_TIMEOUT_MS = 14_000;
 const MAX_ATTEMPTS = 2;
 const MAX_RETRY_DELAY_MS = 4_000;
@@ -159,12 +159,32 @@ function createGeminiAnalyzer(config, fetchImpl = fetch, {
         throw new GeminiProviderError('Image analysis timed out. Please retry.', 504, 'timeout', null, attempt);
       }
       try {
-        const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('');
+        const candidate = payload.candidates?.[0];
+        const safetyBlocked = Boolean(payload.promptFeedback?.blockReason) ||
+          ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'SPII']
+            .includes(candidate?.finishReason);
+        if (safetyBlocked) {
+          throw new GeminiProviderError(
+            'The image could not be analyzed because it was blocked by a safety filter. Choose another image and retry.',
+            422,
+            'safety_blocked',
+          );
+        }
+        const text = candidate?.content?.parts?.map((part) => part.text || '').join('');
         if (!text) throw new Error('Missing generated content');
-        const parsed = analysisSchema.safeParse(JSON.parse(text));
+        const fencedJson = text.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+        const parsedJson = JSON.parse(fencedJson ? fencedJson[1] : text.trim());
+        if (!Array.isArray(parsedJson.likelyMaterials)) parsedJson.likelyMaterials ??= [];
+        parsedJson.visibleCondition ??= 'unknown';
+        parsedJson.reusePotential ??= 'uncertain';
+        parsedJson.uncertaintyNotes ??= ['Some details were omitted from the analysis response.'];
+        parsedJson.reuseSuggestions ??= [];
+        parsedJson.safetyNotes ??= ['Safety could not be assessed from this response.'];
+        const parsed = analysisSchema.safeParse(parsedJson);
         if (!parsed.success) throw new Error('Generated content did not match the expected schema');
         return parsed.data;
       } catch (_error) {
+        if (_error instanceof GeminiProviderError) throw _error;
         throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502, 'response_parse', null, attempt);
       }
     }
