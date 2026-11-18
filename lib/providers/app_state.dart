@@ -19,6 +19,7 @@ class AppState extends ChangeNotifier {
   String? requestError;
   bool get isAuthenticated => currentRole != null;
   bool get isPartner => currentRole == 'partner';
+  bool get isAdmin => currentRole == 'admin';
   ImpactStats _impactStats = const ImpactStats(
     itemsReused: 0,
     itemsRecycled: 0,

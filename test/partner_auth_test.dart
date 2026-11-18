@@ -3,10 +3,78 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:recircle/features/requests/data/recircle_api.dart';
 import 'package:recircle/providers/app_state.dart';
 import 'package:recircle/screens/auth_screen.dart';
+import 'package:recircle/screens/partner_application_screen.dart';
 import 'package:recircle/screens/partner_dashboard_screen.dart';
 import 'package:recircle/theme/app_theme.dart';
 
 void main() {
+  testWidgets(
+    'partner application submits all required data and waits for approval',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final api = _PartnerApplicationApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.theme,
+          home: PartnerApplicationScreen(appState: AppState(api: api)),
+        ),
+      );
+
+      const values = [
+        'Casey Collector',
+        'casey@example.test',
+        '+911234567890',
+        'safe-password-123',
+        '42 Green Street',
+        'Pune',
+        '411001',
+        'Pune and nearby areas',
+      ];
+      for (var i = 0; i < values.length - 1; i++) {
+        final input = find.byKey(
+          ValueKey(
+            'partner-application-${['name', 'email', 'phone', 'password', 'address', 'city', 'pinCode', 'serviceArea'][i]}',
+          ),
+        );
+        await tester.scrollUntilVisible(
+          input,
+          -300,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.enterText(input, values[i]);
+      }
+      const serviceArea = ValueKey('partner-application-serviceArea');
+      final lastInput = find.byKey(serviceArea);
+      await tester.scrollUntilVisible(
+        lastInput,
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(lastInput, values.last);
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Submit application'),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Submit application'));
+      await tester.pumpAndSettle();
+
+      expect(api.path, '/auth/partner-register');
+      expect(api.body?['city'], 'Pune');
+      expect(api.body?['pinCode'], '411001');
+      expect(find.text('Application submitted'), findsOneWidget);
+      expect(
+        find.textContaining('pending administrator review'),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('sign-in form validates credentials before sending a request', (
     tester,
   ) async {
@@ -165,4 +233,19 @@ class _FakeApi extends ReCircleApi {
 
   @override
   Future<dynamic> get(String path) async => <dynamic>[];
+}
+
+class _PartnerApplicationApi extends ReCircleApi {
+  String? path;
+  Map<String, dynamic>? body;
+
+  @override
+  Future<dynamic> post(
+    String requestPath, [
+    Map<String, dynamic>? requestBody,
+  ]) async {
+    path = requestPath;
+    body = requestBody;
+    return const {};
+  }
 }

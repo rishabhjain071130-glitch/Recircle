@@ -4,6 +4,7 @@ import '../providers/app_state.dart';
 import '../screens/main_navigation_screen.dart';
 import '../screens/auth_screen.dart';
 import '../screens/partner_dashboard_screen.dart';
+import '../screens/admin_dashboard_screen.dart';
 import 'theme/app_theme.dart';
 
 class ReCircleApp extends StatefulWidget {
@@ -47,6 +48,9 @@ class _ReCircleAppState extends State<ReCircleApp> {
           }
           if (_appState.isPartner) {
             return PartnerDashboardScreen(appState: _appState);
+          }
+          if (_appState.isAdmin) {
+            return AdminDashboardScreen(appState: _appState);
           }
           return MainNavigationScreen(appState: _appState);
         },

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'partner_application_screen.dart';
+
 import '../app/theme/app_colors.dart';
 import '../providers/app_state.dart';
 import '../features/requests/data/recircle_api.dart';
@@ -476,8 +478,20 @@ class _AuthScreenState extends State<AuthScreen>
                         ),
                         if (!_register) ...[
                           const SizedBox(height: 15),
+                          TextButton(
+                            onPressed: _busy
+                                ? null
+                                : () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => PartnerApplicationScreen(
+                                        appState: widget.appState,
+                                      ),
+                                    ),
+                                  ),
+                            child: const Text('Apply as a collection partner'),
+                          ),
                           const Text(
-                            'Collection partners sign in with their partner account. Accounts are created by the demo administrator.',
+                            'Partner accounts require administrator approval before pickups are available.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 12,

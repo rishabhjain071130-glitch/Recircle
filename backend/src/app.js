@@ -25,9 +25,17 @@ function createApp({ config = getConfig(), models, analyzeImage } = {}) {
   app.use(express.json({ limit: '1mb' }));
   app.get('/api/v1/health', (_req, res) => {
     const databaseConnected = require('mongoose').connection.readyState === 1;
+    const branch = process.env.RENDER_GIT_BRANCH;
+    const commit = process.env.RENDER_GIT_COMMIT;
     res.status(databaseConnected ? 200 : 503).json({
       success: databaseConnected,
-      data: { status: databaseConnected ? 'ok' : 'unavailable', database: databaseConnected ? 'connected' : 'disconnected' },
+      data: {
+        status: databaseConnected ? 'ok' : 'unavailable',
+        database: databaseConnected ? 'connected' : 'disconnected',
+        analysisConfigured: Boolean(config.geminiApiKey),
+        ...(branch ? { branch } : {}),
+        ...(commit ? { commit } : {}),
+      },
     });
   });
   app.use('/api/v1/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false }));

@@ -230,7 +230,7 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Demo booking only. No collection partner is contacted and no pickup is scheduled.',
+                'Submitting creates a pickup request for partners to review. A pickup is not confirmed until a partner accepts it.',
                 style: TextStyle(fontSize: 14, color: AppTheme.subtitleGrey),
               ),
               const SizedBox(height: 24),

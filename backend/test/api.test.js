@@ -69,7 +69,29 @@ test('health endpoint reports database connectivity', async () => {
   assert.equal(app.get('trust proxy'), 1);
   const response = await request(app).get('/api/v1/health');
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body.data, { status: 'ok', database: 'connected' });
+  assert.deepEqual(response.body.data, {
+    status: 'ok', database: 'connected', analysisConfigured: false,
+  });
+});
+
+test('health exposes only safe Render branch and commit metadata', async () => {
+  const previousBranch = process.env.RENDER_GIT_BRANCH;
+  const previousCommit = process.env.RENDER_GIT_COMMIT;
+  process.env.RENDER_GIT_BRANCH = 'main';
+  process.env.RENDER_GIT_COMMIT = '0123456789abcdef';
+  try {
+    const response = await request(app).get('/api/v1/health');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.branch, 'main');
+    assert.equal(response.body.data.commit, '0123456789abcdef');
+    assert.equal(response.body.data.analysisConfigured, false);
+    assert.equal(JSON.stringify(response.body).includes('secret'), false);
+  } finally {
+    if (previousBranch === undefined) delete process.env.RENDER_GIT_BRANCH;
+    else process.env.RENDER_GIT_BRANCH = previousBranch;
+    if (previousCommit === undefined) delete process.env.RENDER_GIT_COMMIT;
+    else process.env.RENDER_GIT_COMMIT = previousCommit;
+  }
 });
 
 test('admin provisioning is disabled when its secret is missing', async () => {
