@@ -192,7 +192,7 @@ function createGeminiAnalyzer(config, fetchImpl = fetch, {
           }
           const text = candidate?.content?.parts?.map((part) => part.text || '').join('');
           if (!text) throw new Error('Missing generated content');
-          const fencedJson = text.trim().match(/^\`\`\`(?:json)?\\s*([\\s\\S]*?)\\s*\`\`\`$/i);
+          const fencedJson = text.trim().match(/^\`\`\`(?:json)?\s*([\s\S]*?)\s*\`\`\`$/i);
           const parsedJson = JSON.parse(fencedJson ? fencedJson[1] : text.trim());
           if (!Array.isArray(parsedJson.likelyMaterials)) parsedJson.likelyMaterials ??= [];
           parsedJson.visibleCondition ??= 'unknown';
