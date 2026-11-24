@@ -5,6 +5,7 @@ import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recircle_branding.dart';
 import 'pickup_booking_screen.dart';
+import 'nearby_partners_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   final AppState appState;
@@ -111,6 +112,16 @@ class HomeScreen extends StatelessWidget {
                     icon: Icons.auto_awesome_rounded,
                     label: 'AI Assistant',
                     onTap: () => onNavigateToTab(AppTab.scan.index),
+                  ),
+                  _QuickActionTile(
+                    icon: Icons.map_outlined,
+                    label: 'Nearby Partners',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => NearbyPartnersScreen(appState: appState),
+                      ),
+                    ),
                   ),
                 ],
               ),
