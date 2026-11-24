@@ -21,7 +21,6 @@ android {
     }
 
     defaultConfig {
-        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.recircle"
         // You can update the following values to match your application needs.
