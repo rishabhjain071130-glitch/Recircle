@@ -7,6 +7,7 @@ import '../features/requests/data/recircle_api.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recircle_branding.dart';
+import 'pickup_booking_screen.dart';
 
 class NearbyPartnersScreen extends StatefulWidget {
   const NearbyPartnersScreen({super.key, required this.appState});
@@ -224,7 +225,16 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
               child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
-                  Navigator.pop(context, partner);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => PickupBookingScreen(
+                        appState: widget.appState,
+                        preferredPartnerId: partner['partnerId']?.toString(),
+                        preferredPartnerName: partner['name']?.toString(),
+                      ),
+                    ),
+                  );
                 },
                 icon: const Icon(Icons.local_shipping_outlined),
                 label: const Text('Use this partner for pickup'),

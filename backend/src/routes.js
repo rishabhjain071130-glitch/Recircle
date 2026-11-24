@@ -22,7 +22,7 @@ const partnerApprovalSchema = z.object({ status: z.enum(['approved', 'rejected',
 const partnerRejectSchema = z.object({ reason: z.string().trim().max(500).optional() }).strict();
 const createSchema = z.object({
   item: z.object({ category: z.string().trim().min(2).max(60), name: z.string().trim().min(2).max(120), condition: z.string().trim().min(2).max(60), brandModel: z.string().max(120).optional(), quantity: z.number().int().min(1).max(999).default(1), imageReference: z.string().max(500).optional() }).strict(),
-  pickup: z.object({ address: z.string().trim().min(5).max(500), contactName: z.string().trim().min(2).max(100), contactPhone: z.string().trim().min(5).max(30), preferredDate: z.string().max(40).optional(), preferredTime: z.string().max(60).optional(), notes: z.string().max(500).optional() }).strict(),
+  pickup: z.object({ address: z.string().trim().min(5).max(500), contactName: z.string().trim().min(2).max(100), contactPhone: z.string().trim().min(5).max(30), preferredDate: z.string().max(40).optional(), preferredTime: z.string().max(60).optional(), notes: z.string().max(500).optional(), preferredPartnerId: z.string().optional() }).strict(),
 }).strict();
 const statusSchema = z.object({ status: z.enum(['Collected', 'ReceivedForProcessing', 'Completed']), note: z.string().trim().max(500).optional() }).strict();
 const historyQuerySchema = z.object({
@@ -310,7 +310,31 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
   router.post('/requests', auth(config, 'customer'), async (req, res, next) => {
     try {
       const body = validate(createSchema, req.body);
-      const request = await models.PickupRequest.create({ ...body, customer: req.user.id, status: 'Submitted', history: [{ from: null, to: 'Submitted', actor: req.user.id, at: new Date() }] });
+      const preferredPartnerId = body.pickup.preferredPartnerId;
+      if (preferredPartnerId) {
+        if (!mongoose.isValidObjectId(preferredPartnerId)) {
+          return res.status(400).json({ success: false, error: { message: 'Invalid collection partner' } });
+        }
+        const partner = await models.User.findOne({
+          _id: preferredPartnerId,
+          role: 'partner',
+          active: true,
+          partnerStatus: 'approved',
+          partnerAvailable: true,
+        }).select('_id');
+        if (!partner) {
+          return res.status(409).json({ success: false, error: { message: 'This collection partner is no longer available. Choose another partner.' } });
+        }
+      }
+      const { preferredPartnerId: _preferredPartnerId, ...pickup } = body.pickup;
+      const request = await models.PickupRequest.create({
+        ...body,
+        pickup,
+        ...(preferredPartnerId ? { preferredPartner: preferredPartnerId } : {}),
+        customer: req.user.id,
+        status: 'Submitted',
+        history: [{ from: null, to: 'Submitted', actor: req.user.id, at: new Date() }],
+      });
       res.status(201).json({ success: true, data: request });
     } catch (error) { next(error); }
   });
@@ -322,7 +346,12 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
   router.get('/partner/requests/eligible', auth(config, 'partner'), async (req, res, next) => {
     try {
       if (!req.user.partnerAvailable) return res.json({ success: true, data: [] });
-      const requests = await models.PickupRequest.find({ status: 'Submitted', partner: null, rejectedBy: { $ne: req.user.id } }).sort({ createdAt: 1 }).limit(100).lean();
+      const requests = await models.PickupRequest.find({
+        status: 'Submitted',
+        partner: null,
+        rejectedBy: { $ne: req.user.id },
+        $or: [{ preferredPartner: null }, { preferredPartner: req.user.id }],
+      }).sort({ createdAt: 1 }).limit(100).lean();
       const data = requests.map((request) => ({
         ...request,
         item: { category: request.item.category, name: request.item.name, condition: request.item.condition, quantity: request.item.quantity },
@@ -340,7 +369,14 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     try {
       if (!validRequestId(req, res)) return;
       const body = validate(partnerRejectSchema, req.body || {});
-      const result = await models.PickupRequest.updateOne({ _id: req.params.id, status: 'Submitted', partner: null, rejectedBy: { $ne: req.user.id } }, { $addToSet: { rejectedBy: req.user.id }, $push: { history: { from: 'Submitted', to: 'Submitted', actor: req.user.id, at: new Date(), note: body.reason || 'Partner declined the request' } } });
+      const result = await models.PickupRequest.updateOne(
+        { _id: req.params.id, status: 'Submitted', partner: null, rejectedBy: { $ne: req.user.id } },
+        {
+          $set: { preferredPartner: null },
+          $addToSet: { rejectedBy: req.user.id },
+          $push: { history: { from: 'Submitted', to: 'Submitted', actor: req.user.id, at: new Date(), note: body.reason || 'Partner declined the request' } },
+        },
+      );
       if (result.modifiedCount !== 1) return res.status(409).json({ success: false, error: { message: 'Request is no longer available to decline' } });
       res.json({ success: true, data: { id: req.params.id, declined: true } });
     } catch (error) { next(error); }

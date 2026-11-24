@@ -44,6 +44,7 @@ const pickupSchema = new mongoose.Schema({
     notes: { type: String, trim: true, maxlength: 500, default: '' },
   },
   partner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+  preferredPartner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
   status: { type: String, enum: ['Submitted', 'Accepted', 'Collected', 'ReceivedForProcessing', 'Completed', 'Cancelled'], default: 'Submitted', index: true },
   history: { type: [historySchema], default: [] },
   rejectedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

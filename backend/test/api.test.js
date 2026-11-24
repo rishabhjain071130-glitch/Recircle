@@ -386,6 +386,62 @@ test('partner declines are private to that partner and availability controls eli
   assert.equal((await request(app).get(`/api/v1/requests/${id}`).set('Authorization', `Bearer ${other}`)).status, 403);
 });
 
+test('customer can route a pickup to a selected available partner', async () => {
+  const customer = await register('Map Customer', 'map-route@example.com');
+  const partnerA = await User.create({
+    name: 'Selected Partner',
+    email: 'selected-partner@example.com',
+    passwordHash: 'hashed',
+    role: 'partner',
+    partnerStatus: 'approved',
+    partnerAvailable: true,
+  });
+  const partnerB = await User.create({
+    name: 'Other Partner',
+    email: 'other-partner@example.com',
+    passwordHash: 'hashed',
+    role: 'partner',
+    partnerStatus: 'approved',
+    partnerAvailable: true,
+  });
+  const tokenA = jwt.sign({ sub: partnerA.id }, config.jwtSecret, { expiresIn: '1h' });
+  const tokenB = jwt.sign({ sub: partnerB.id }, config.jwtSecret, { expiresIn: '1h' });
+
+  const created = await request(app)
+    .post('/api/v1/requests')
+    .set('Authorization', `Bearer ${customer}`)
+    .send({
+      item: { category: 'E-Waste', name: 'Old Laptop', condition: 'Used', quantity: 1 },
+      pickup: {
+        address: '12 Green Street',
+        contactName: 'Map Customer',
+        contactPhone: '+919999999999',
+        preferredPartnerId: partnerA.id,
+      },
+    });
+
+  assert.equal(created.status, 201);
+  assert.equal(created.body.data.preferredPartner.toString(), partnerA.id.toString());
+
+  const eligibleA = await request(app)
+    .get('/api/v1/partner/requests/eligible')
+    .set('Authorization', `Bearer ${tokenA}`);
+  assert.equal(eligibleA.status, 200);
+  assert.equal(eligibleA.body.data.length, 1);
+
+  const eligibleB = await request(app)
+    .get('/api/v1/partner/requests/eligible')
+    .set('Authorization', `Bearer ${tokenB}`);
+  assert.equal(eligibleB.status, 200);
+  assert.equal(eligibleB.body.data.length, 0);
+
+  const accepted = await request(app)
+    .post(`/api/v1/partner/requests/${created.body.data._id}/accept`)
+    .set('Authorization', `Bearer ${tokenA}`);
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.data.partner.toString(), partnerA.id.toString());
+});
+
 test('admin dashboard, customer directory, and pickup monitor are authorized and data-backed', async () => {
   const admin = await User.create({ name: 'Platform Admin', email: 'platform-admin@example.com', passwordHash: 'hashed', role: 'admin' });
   const adminToken = jwt.sign({ sub: admin.id, role: 'customer' }, config.jwtSecret, { expiresIn: '1h' });

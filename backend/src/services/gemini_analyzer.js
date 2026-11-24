@@ -154,11 +154,13 @@ function createGeminiAnalyzer(config, fetchImpl = fetch, {
           }
           if (status === 404) {
             lastTransientError = new Error(`Model ${model} is unavailable`);
+            lastFailureCategory = 'model_unavailable';
             break;
           }
           if (TRANSIENT_PROVIDER_STATUSES.has(status)) {
             if (attempt < MAX_ATTEMPTS_PER_MODEL && await waitBeforeRetry(response, attempt, { now, random, sleep })) continue;
             lastTransientError = new Error(`Gemini returned ${status}`);
+            lastFailureCategory = status === 429 ? 'quota' : 'unavailable';
             break;
           }
           throw new GeminiProviderError('The image analysis provider could not complete the request.', 502, 'provider_error', status, totalAttempts);
@@ -190,7 +192,7 @@ function createGeminiAnalyzer(config, fetchImpl = fetch, {
           }
           const text = candidate?.content?.parts?.map((part) => part.text || '').join('');
           if (!text) throw new Error('Missing generated content');
-          const fencedJson = text.trim().match(/^\`\`\`(?:json)?\\s*([\\s\\S]*?)\\s*\`\`\`$/i);
+          const fencedJson = text.trim().match(/^\`\`\`(?:json)?\s*([\s\S]*?)\s*\`\`\`$/i);
           const parsedJson = JSON.parse(fencedJson ? fencedJson[1] : text.trim());
           if (!Array.isArray(parsedJson.likelyMaterials)) parsedJson.likelyMaterials ??= [];
           parsedJson.visibleCondition ??= 'unknown';
@@ -213,7 +215,7 @@ function createGeminiAnalyzer(config, fetchImpl = fetch, {
       throw new GeminiProviderError(
         timedOut ? 'Image analysis timed out. Please retry.' : 'Image analysis is temporarily unavailable. Please retry.',
         timedOut ? 504 : 503,
-        timedOut ? 'timeout' : 'unavailable',
+        timedOut ? 'timeout' : lastFailureCategory,
         lastProviderStatus,
         totalAttempts,
       );
