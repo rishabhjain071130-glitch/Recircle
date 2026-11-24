@@ -66,7 +66,12 @@ async function partnerToken(email = 'map-partner@example.com') {
       password: 'secure-pass-123',
     });
   assert.equal(response.status, 201);
-  return response.body.data.token;
+
+  const login = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ email, password: 'secure-pass-123' });
+  assert.equal(login.status, 200);
+  return login.body.data.token;
 }
 
 test('approved partners can publish a location and customers can discover them by distance', async () => {
