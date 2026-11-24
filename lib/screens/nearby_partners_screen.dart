@@ -23,7 +23,7 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
   List<Map<String, dynamic>> _partners = const [];
   String? _error;
   bool _loading = true;
-  double _radiusKm = 10;
+  final double _radiusKm = 10;
 
   @override
   void initState() {
