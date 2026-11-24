@@ -50,7 +50,7 @@ function validate(schema, value) {
 module.exports = ({ models, config }) => {
   const router = express.Router();
 
-  router.put('/partners/me/location', auth(config, 'partner'), async (req, res, next) => {
+  router.patch('/partners/me/location', auth(config, 'partner'), async (req, res, next) => {
     try {
       const body = validate(locationSchema, req.body);
       if (req.user.partnerStatus !== 'approved') {
