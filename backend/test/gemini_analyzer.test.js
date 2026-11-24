@@ -26,7 +26,7 @@ test('sends inline image data to the configured Gemini model and parses structur
   });
   const actual = await analyze({ image: Buffer.from([1, 2, 3]), mimeType: 'image/jpeg' });
   assert.deepEqual(actual, result);
-  assert.match(request.url, /models\/gemini-3\.8-flash:generateContent$/);
+  assert.match(request.url, /models\/gemini-3\.6-flash:generateContent$/);
   assert.equal(request.options.headers['x-goog-api-key'], 'test-key');
   const payload = JSON.parse(request.options.body);
   assert.equal(payload.contents[0].parts[1].inline_data.data, Buffer.from([1, 2, 3]).toString('base64'));
