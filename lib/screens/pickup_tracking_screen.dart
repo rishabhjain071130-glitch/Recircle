@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../features/requests/data/recircle_api.dart';
 import '../models/pickup.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
@@ -21,34 +24,70 @@ class PickupTrackingScreen extends StatefulWidget {
 
 class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
   late Pickup _currentPickup;
+  Timer? _refreshTimer;
+  bool _refreshing = false;
+  DateTime? _lastUpdated;
 
   @override
   void initState() {
     super.initState();
     _currentPickup = widget.pickup;
+    _lastUpdated = DateTime.now();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => _refresh(silent: true),
+    );
   }
 
-  Future<void> _refresh() async {
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh({bool silent = false}) async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
     try {
-      await widget.appState.refreshRequests();
+      final refreshed = await widget.appState.refreshRequest(_currentPickup.id);
       if (!mounted) return;
-      setState(() {
-        _currentPickup = widget.appState.pickups.firstWhere(
-          (pickup) => pickup.id == _currentPickup.id,
-          orElse: () => _currentPickup,
-        );
-      });
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.appState.requestError ?? 'Could not refresh request.',
+      if (refreshed != null) {
+        final statusChanged = refreshed.status != _currentPickup.status;
+        setState(() {
+          _currentPickup = refreshed;
+          _lastUpdated = DateTime.now();
+        });
+        if (!silent && statusChanged) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Pickup status updated to ${refreshed.status.displayName}.',
+              ),
             ),
-          ),
+          );
+        }
+      }
+    } on ApiException catch (error) {
+      if (!mounted || silent) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not refresh pickup status.')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
+  }
+
+  String _formatTime(DateTime time) {
+    final local = time.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
   }
 
   @override
@@ -60,8 +99,14 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
         title: ReCircleBrandTitle('Request #${_currentPickup.id}'),
         actions: [
           IconButton(
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
+            onPressed: _refreshing ? null : () => _refresh(),
+            icon: _refreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
             tooltip: 'Refresh status',
           ),
         ],
@@ -193,13 +238,32 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
             const SizedBox(height: 24),
 
             // Timeline Header
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Tracking Timeline',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.darkText,
+                    ),
+                  ),
+                ),
+                if (_lastUpdated case final lastUpdated?)
+                  Text(
+                    'Updated ${_formatTime(lastUpdated)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.subtitleGrey,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
             const Text(
-              'Tracking Timeline',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.darkText,
-              ),
+              'Status refreshes automatically every 20 seconds while this screen is open.',
+              style: TextStyle(fontSize: 12, color: AppTheme.subtitleGrey),
             ),
             const SizedBox(height: 16),
 

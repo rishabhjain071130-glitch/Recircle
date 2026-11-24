@@ -16,6 +16,37 @@ void main() {
     );
   });
 
+  test(
+    'single pickup requests use the authenticated encoded detail endpoint',
+    () async {
+      late http.Request sent;
+      final storage = _MemorySecureStorage();
+      final api = ReCircleApi(
+        baseUrl: ReCircleApi.productionBaseUrl,
+        storage: storage,
+        client: MockClient((request) async {
+          sent = request;
+          return http.Response(
+            '{"success":true,"data":{"_id":"pickup/one"}}',
+            200,
+            request: request,
+          );
+        }),
+      );
+      await api.saveToken('test-jwt');
+
+      final result = await api.getRequest('pickup/one');
+
+      expect(sent.method, 'GET');
+      expect(
+        sent.url.toString(),
+        '${ReCircleApi.productionBaseUrl}/requests/pickup%2Fone',
+      );
+      expect(sent.headers['authorization'], 'Bearer test-jwt');
+      expect(result, {'_id': 'pickup/one'});
+    },
+  );
+
   test('debug installs on physical phones default to the hosted API', () {
     expect(
       ReCircleApi.resolveBaseUrl('', debugMode: true),

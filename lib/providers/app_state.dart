@@ -133,6 +133,34 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<Pickup?> refreshRequest(String id) async {
+    try {
+      final result = await api.getRequest(id);
+      final pickup = Pickup.fromApiJson(
+        (result as Map).cast<String, dynamic>(),
+      );
+      final index = _pickups.indexWhere((item) => item.id == id);
+
+      if (index >= 0) {
+        _pickups[index] = pickup;
+      } else {
+        _pickups.insert(0, pickup);
+      }
+
+      requestError = null;
+      notifyListeners();
+      return pickup;
+    } on ApiException catch (error) {
+      requestError = error.message;
+      if (error.statusCode == 401) {
+        currentRole = null;
+        _pickups.clear();
+      }
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<Pickup> createRequest({
     required String itemName,
     required String category,

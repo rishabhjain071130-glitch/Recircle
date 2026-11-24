@@ -113,6 +113,9 @@ class ReCircleApi {
   Future<dynamic> getAnalysisDetail(String id) =>
       get('/analysis/history/${Uri.encodeComponent(id)}');
 
+  Future<dynamic> getRequest(String id) =>
+      get('/requests/${Uri.encodeComponent(id)}');
+
   Future<dynamic> analyzeImage({
     required Uint8List image,
     required String mimeType,
