@@ -16,7 +16,8 @@ function getConfig(env = process.env) {
     adminProvisioningPassword: env.ADMIN_PROVISIONING_PASSWORD || '',
     demoMode: env.DEMO_MODE === 'true',
     geminiApiKey: env.GEMINI_API_KEY || '',
-    geminiModel: env.GEMINI_MODEL || 'gemini-3.8-flash',
+    geminiModel: env.GEMINI_MODEL || 'gemini-3.6-flash',
+    geminiFallbackModel: env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
   };
 }
 
