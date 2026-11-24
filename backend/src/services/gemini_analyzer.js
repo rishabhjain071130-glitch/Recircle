@@ -64,11 +64,13 @@ class GeminiProviderError extends Error {
   }
 }
 
-// Two bounded attempts plus at most four seconds of backoff leave time for
-// Render's free-tier cold start and database persistence in the Flutter client.
-const ATTEMPT_TIMEOUT_MS = 14_000;
-const MAX_ATTEMPTS = 2;
-const MAX_RETRY_DELAY_MS = 4_000;
+// Keep the provider path bounded while allowing the primary model to fail over
+// to a second supported multimodal model. The Flutter client allows 120 seconds
+// for the full request, so the backend must remain comfortably below that limit.
+const ATTEMPT_TIMEOUT_MS = 20_000;
+const MAX_ATTEMPTS_PER_MODEL = 2;
+const MAX_RETRY_DELAY_MS = 3_000;
+const TRANSIENT_PROVIDER_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 function isTimeoutError(error) {
   return error?.name === 'TimeoutError' || error?.name === 'AbortError';
@@ -100,93 +102,121 @@ function createGeminiAnalyzer(config, fetchImpl = fetch, {
       'Do not invent prices, rewards, pickup availability, environmental savings, or guaranteed recycling outcomes.',
       manualCategory ? `The user suggests the category is ${manualCategory}. Respect that correction if the image supports it, while keeping item identification honest.` : '',
     ].filter(Boolean).join(' ');
-    const generationConfig = { responseMimeType: 'application/json', responseSchema };
-    if (config.geminiModel === 'gemini-3.8-flash') {
-      generationConfig.thinkingConfig = { thinkingLevel: 'low' };
-    } else {
-      generationConfig.temperature = 0.2;
-    }
-    const body = JSON.stringify({
-      contents: [{ role: 'user', parts: [
-        { text: prompt },
-        { inline_data: { mime_type: mimeType, data: image.toString('base64') } },
-      ] }],
-      generationConfig,
-    });
+    const models = [...new Set([config.geminiModel, config.geminiFallbackModel].filter(Boolean))];
     let lastTransientError;
+    let lastProviderStatus = null;
+    let totalAttempts = 0;
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-      let response;
-      try {
-        response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiModel)}:generateContent`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
-          body,
-          signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
-        });
-      } catch (error) {
-        if (!isTimeoutError(error) && error?.name !== 'TypeError') {
-          throw new GeminiProviderError('The image analysis provider could not be reached.', 503, 'unavailable', null, attempt);
-        }
-        lastTransientError = error;
-        if (attempt < MAX_ATTEMPTS && await waitBeforeRetry(null, attempt, { now, random, sleep })) continue;
-        if (isTimeoutError(error)) {
-          throw new GeminiProviderError('Image analysis timed out. Please retry.', 504, 'timeout', null, attempt);
-        }
-        throw new GeminiProviderError('The image analysis provider could not be reached.', 503, 'unavailable', null, attempt);
+    for (const model of models) {
+      const generationConfig = { responseMimeType: 'application/json', responseSchema };
+      if (model === 'gemini-3.6-flash' || model === 'gemini-3.8-flash') {
+        generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+      } else {
+        generationConfig.temperature = 0.2;
       }
 
-      if (!response.ok) {
-        const status = response.status;
-        if ([429, 503, 504].includes(status) && attempt < MAX_ATTEMPTS && await waitBeforeRetry(response, attempt, { now, random, sleep })) continue;
-        if (status === 429) throw new GeminiProviderError('Image analysis is busy. Please wait and retry.', 503, 'quota', status, attempt);
-        if (status === 404) throw new GeminiProviderError('Image analysis is temporarily unavailable.', 503, 'model_unavailable', status, attempt);
-        if (status === 401 || status === 403) throw new GeminiProviderError('Image analysis is not available with the current server configuration.', 503, 'configuration', status, attempt);
-        if (status === 400) throw new GeminiProviderError('The image could not be analyzed. Choose a different photo and retry.', 400, 'invalid_image', status, attempt);
-        if (status === 504) throw new GeminiProviderError('Image analysis timed out. Please retry.', 504, 'timeout', status, attempt);
-        throw new GeminiProviderError('The image analysis provider could not complete the request.', 502, 'provider_error', status, attempt);
-      }
+      const body = JSON.stringify({
+        contents: [{ role: 'user', parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mimeType, data: image.toString('base64') } },
+        ] }],
+        generationConfig,
+      });
 
-      let payload;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        if (!isTimeoutError(error)) {
-          throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502, 'response_parse', null, attempt);
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+        totalAttempts += 1;
+        let response;
+        try {
+          response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
+            body,
+            signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+          });
+        } catch (error) {
+          if (!isTimeoutError(error) && error?.name !== 'TypeError') {
+            lastTransientError = error;
+            break;
+          }
+          lastTransientError = error;
+          if (attempt < MAX_ATTEMPTS_PER_MODEL && await waitBeforeRetry(null, attempt, { now, random, sleep })) continue;
+          break;
         }
-        lastTransientError = error;
-        if (attempt < MAX_ATTEMPTS && await waitBeforeRetry(null, attempt, { now, random, sleep })) continue;
-        throw new GeminiProviderError('Image analysis timed out. Please retry.', 504, 'timeout', null, attempt);
-      }
-      try {
-        const candidate = payload.candidates?.[0];
-        const safetyBlocked = Boolean(payload.promptFeedback?.blockReason) ||
-          ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'SPII']
-            .includes(candidate?.finishReason);
-        if (safetyBlocked) {
-          throw new GeminiProviderError(
-            'The image could not be analyzed because it was blocked by a safety filter. Choose another image and retry.',
-            422,
-            'safety_blocked',
-          );
+
+        if (!response.ok) {
+          const status = response.status;
+          lastProviderStatus = status;
+          if (status === 400) {
+            throw new GeminiProviderError('The image could not be analyzed. Choose a different photo and retry.', 400, 'invalid_image', status, totalAttempts);
+          }
+          if (status === 401 || status === 403) {
+            throw new GeminiProviderError('Image analysis is not available with the current server configuration.', 503, 'configuration', status, totalAttempts);
+          }
+          if (status === 404) {
+            lastTransientError = new Error(`Model ${model} is unavailable`);
+            break;
+          }
+          if (TRANSIENT_PROVIDER_STATUSES.has(status)) {
+            if (attempt < MAX_ATTEMPTS_PER_MODEL && await waitBeforeRetry(response, attempt, { now, random, sleep })) continue;
+            lastTransientError = new Error(`Gemini returned ${status}`);
+            break;
+          }
+          throw new GeminiProviderError('The image analysis provider could not complete the request.', 502, 'provider_error', status, totalAttempts);
         }
-        const text = candidate?.content?.parts?.map((part) => part.text || '').join('');
-        if (!text) throw new Error('Missing generated content');
-        const fencedJson = text.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-        const parsedJson = JSON.parse(fencedJson ? fencedJson[1] : text.trim());
-        if (!Array.isArray(parsedJson.likelyMaterials)) parsedJson.likelyMaterials ??= [];
-        parsedJson.visibleCondition ??= 'unknown';
-        parsedJson.reusePotential ??= 'uncertain';
-        parsedJson.uncertaintyNotes ??= ['Some details were omitted from the analysis response.'];
-        parsedJson.reuseSuggestions ??= [];
-        parsedJson.safetyNotes ??= ['Safety could not be assessed from this response.'];
-        const parsed = analysisSchema.safeParse(parsedJson);
-        if (!parsed.success) throw new Error('Generated content did not match the expected schema');
-        return parsed.data;
-      } catch (_error) {
-        if (_error instanceof GeminiProviderError) throw _error;
-        throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502, 'response_parse', null, attempt);
+
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          if (isTimeoutError(error)) {
+            lastTransientError = error;
+            if (attempt < MAX_ATTEMPTS_PER_MODEL && await waitBeforeRetry(null, attempt, { now, random, sleep })) continue;
+            break;
+          }
+          throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502, 'response_parse', null, totalAttempts);
+        }
+
+        try {
+          const candidate = payload.candidates?.[0];
+          const safetyBlocked = Boolean(payload.promptFeedback?.blockReason) ||
+            ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'SPII']
+              .includes(candidate?.finishReason);
+          if (safetyBlocked) {
+            throw new GeminiProviderError(
+              'The image could not be analyzed because it was blocked by a safety filter. Choose another image and retry.',
+              422,
+              'safety_blocked',
+            );
+          }
+          const text = candidate?.content?.parts?.map((part) => part.text || '').join('');
+          if (!text) throw new Error('Missing generated content');
+          const fencedJson = text.trim().match(/^\`\`\`(?:json)?\\s*([\\s\\S]*?)\\s*\`\`\`$/i);
+          const parsedJson = JSON.parse(fencedJson ? fencedJson[1] : text.trim());
+          if (!Array.isArray(parsedJson.likelyMaterials)) parsedJson.likelyMaterials ??= [];
+          parsedJson.visibleCondition ??= 'unknown';
+          parsedJson.reusePotential ??= 'uncertain';
+          parsedJson.uncertaintyNotes ??= ['Some details were omitted from the analysis response.'];
+          parsedJson.reuseSuggestions ??= [];
+          parsedJson.safetyNotes ??= ['Safety could not be assessed from this response.'];
+          const parsed = analysisSchema.safeParse(parsedJson);
+          if (!parsed.success) throw new Error('Generated content did not match the expected schema');
+          return parsed.data;
+        } catch (_error) {
+          if (_error instanceof GeminiProviderError) throw _error;
+          throw new GeminiProviderError('The image analysis provider returned an unreadable result.', 502, 'response_parse', null, totalAttempts);
+        }
       }
+    }
+
+    if (lastTransientError) {
+      const timedOut = isTimeoutError(lastTransientError);
+      throw new GeminiProviderError(
+        timedOut ? 'Image analysis timed out. Please retry.' : 'Image analysis is temporarily unavailable. Please retry.',
+        timedOut ? 504 : 503,
+        timedOut ? 'timeout' : 'unavailable',
+        lastProviderStatus,
+        totalAttempts,
+      );
     }
 
     throw new GeminiProviderError('The image analysis provider could not be reached.', 503, 'unavailable', null, lastTransientError ? MAX_ATTEMPTS : 1);
