@@ -369,7 +369,14 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     try {
       if (!validRequestId(req, res)) return;
       const body = validate(partnerRejectSchema, req.body || {});
-      const result = await models.PickupRequest.updateOne({ _id: req.params.id, status: 'Submitted', partner: null, rejectedBy: { $ne: req.user.id } }, { $addToSet: { rejectedBy: req.user.id }, $push: { history: { from: 'Submitted', to: 'Submitted', actor: req.user.id, at: new Date(), note: body.reason || 'Partner declined the request' } } });
+      const result = await models.PickupRequest.updateOne(
+        { _id: req.params.id, status: 'Submitted', partner: null, rejectedBy: { $ne: req.user.id } },
+        {
+          $set: { preferredPartner: null },
+          $addToSet: { rejectedBy: req.user.id },
+          $push: { history: { from: 'Submitted', to: 'Submitted', actor: req.user.id, at: new Date(), note: body.reason || 'Partner declined the request' } },
+        },
+      );
       if (result.modifiedCount !== 1) return res.status(409).json({ success: false, error: { message: 'Request is no longer available to decline' } });
       res.json({ success: true, data: { id: req.params.id, declined: true } });
     } catch (error) { next(error); }
