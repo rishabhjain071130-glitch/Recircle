@@ -75,7 +75,7 @@ Release builds are restricted to `https://recircle-backend-upbt.onrender.com/api
 1. In MongoDB Atlas, create a project and a dedicated database deployment. Create a database user with a unique strong password and access limited to the `recircle` database (read/write only). Put the password into the URI through the dashboard's connection string flow and URL-encode reserved characters. Keep this URI private.
 2. In Atlas **Network Access**, allow the backend host's documented outbound IP addresses. If your hosting plan does not provide fixed outbound addresses, use the narrowest supported network option and understand that allowing `0.0.0.0/0` permits connection attempts from anywhere; Atlas still requires database credentials. Do not use that broad rule when a narrower host egress range is available.
 3. Create a Render **Web Service** from this GitHub repository. Set its root directory to `backend`, runtime to Node, build command to `npm ci`, and start command to `npm start`. Use a Node version satisfying `>=20`.
-4. In the Render service's Environment settings, set `MONGODB_URI` (Atlas connection string with database name `recircle`), `JWT_SECRET` (random, at least 32 characters), `GEMINI_API_KEY`, and `PARTNER_SETUP_KEY` (separate random value). Set `GEMINI_MODEL` to `gemini-3.8-flash` or another model currently enabled for the key; the backend default is `gemini-3.8-flash`. Optionally set `JWT_EXPIRES_IN` and `CORS_ORIGINS` as comma-separated exact origins if a browser client needs API access. Flutter native requests generally have no browser Origin. Never paste secret values into source control or chat; generate and enter them directly in the provider dashboards. `PORT` is supplied by Render.
+4. In the Render service's Environment settings, set `MONGODB_URI` (Atlas connection string with database name `recircle`), `JWT_SECRET` (random, at least 32 characters), `GEMINI_API_KEY`, and `PARTNER_SETUP_KEY` (separate random value). Set `GEMINI_MODEL` to `gemini-3.6-flash` and `GEMINI_FALLBACK_MODEL` to `gemini-3.5-flash-lite` (or another pair of currently enabled models for the key). Optionally set `JWT_EXPIRES_IN` and `CORS_ORIGINS` as comma-separated exact origins if a browser client needs API access. Flutter native requests generally have no browser Origin. Never paste secret values into source control or chat; generate and enter them directly in the provider dashboards. `PORT` is supplied by Render.
 5. Deploy and wait for the service to become healthy. Open `https://<service-host>/api/v1/health`. A healthy response reports `status: ok` and `database: connected`; it never returns the URI or credentials. A 503 means the backend cannot reach MongoDB.
 6. In the repository root, run `flutter pub get`, then build an installable release APK with the real URL:
 
@@ -90,6 +90,27 @@ Release builds are restricted to `https://recircle-backend-upbt.onrender.com/api
 ### Existing local data
 
 Atlas starts as a separate database; this deployment does not alter or delete the local database. If existing development records are needed, take a verified backup first and migrate only the required collections with `mongodump`/`mongorestore` using separately protected local and Atlas URIs. Test the restored data in a separate Atlas database before pointing a live service at it. Do not overwrite the existing local database.
+
+### Google Maps and nearby collection partners
+
+The customer app now includes **Nearby Partners**. It requests foreground location permission, shows the customer's position on Google Maps, and loads only approved, active, currently available ReCircle partners from the backend. Partner locations are stored as GeoJSON points in a dedicated `PartnerLocation` collection with a MongoDB `2dsphere` index, and the API returns partners ordered by distance.
+
+The backend endpoints are:
+- `PATCH /api/v1/partners/me/location` — approved partner publishes their current collection point.
+- `DELETE /api/v1/partners/me/location` — approved partner removes their published point.
+- `GET /api/v1/partners/nearby?latitude=<lat>&longitude=<lng>&radiusKm=<1-50>` — authenticated customers receive nearby approved and available partners.
+
+For Android, create a Google Maps Platform project with billing enabled, enable **Maps SDK for Android**, create an Android-restricted API key, and add the ReCircle package name plus the SHA-1 fingerprint for the certificate used by the build. Google recommends restricting the key to the specific SDKs and applications that use it. The current Android application ID is `com.example.recircle`.
+
+For local builds, add the key to the ignored Android `local.properties` file:
+
+``properties
+MAPS_API_KEY=YOUR_RESTRICTED_ANDROID_MAPS_KEY
+``
+
+Do not commit the key. The Android Gradle configuration reads it from `local.properties` and injects it into the Maps SDK manifest placeholder. The app also requests coarse/fine foreground location permissions through `geolocator`.
+
+The customer home screen exposes **Nearby Partners**. Partner Dashboard exposes a location button that publishes the partner's current collection point. A partner must be approved and available before their marker is returned to customers.
 
 ## API reference
 
@@ -111,6 +132,9 @@ All endpoints are under `/api/v1`. Protected endpoints use `Authorization: Beare
 | GET | `/partner/requests/mine` | Partner | Requests assigned to caller |
 | POST | `/partner/requests/:id/accept` | Partner | Atomically claim an unassigned request |
 | PATCH | `/partner/requests/:id/status` | Assigned partner | Advance one permitted status (`status`, optional `note`) |
+| PATCH | `/partners/me/location` | Approved partner | Publish current collection coordinates |
+| DELETE | `/partners/me/location` | Approved partner | Remove published collection coordinates |
+| GET | `/partners/nearby` | Customer | Find approved, available partners within a radius |
 
 Example request body:
 
@@ -138,3 +162,8 @@ Only the authenticated customer ID is stored as owner. The partner claim is a si
 Scan images are sent to the API for analysis but are not persisted. No recycler/courier notification or external processing-verification integration exists. `Completed` records a partner-reported processing update; it is not an independent recycler verification. Rewards and impact values are demo-only and do not represent verified processing or payouts. Profile edits and notification preferences are not persisted to the backend. API polling/refresh is used instead of realtime push. Device, Atlas, and physical-network checks must be reported only after they actually run.
 
 The Flutter admin dashboard currently provides service totals, customer and pickup lists, partner approval/status actions, and publishing/unpublishing of existing market-rate sheets. Creating or editing rate sheets and viewing customer market rates are available through the backend API but do not yet have Flutter screens. Customer profile edits and Environmental Impact totals remain in-memory/session-level only. The Android release variant still uses the debug signing key; configure a private release key before distribution. A successful build is not evidence of physical-phone or live Gemini verification.
+
+
+### Zero-cost map setup
+
+The Android customer map uses `flutter_map` with OpenStreetMap tiles, so this development version does not require a Google Maps API key or billing account. OpenStreetMap public tiles have usage restrictions, so a suitable tile provider or self-hosted tiles should be used before large-scale production traffic.

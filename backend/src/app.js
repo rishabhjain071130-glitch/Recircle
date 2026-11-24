@@ -40,6 +40,7 @@ function createApp({ config = getConfig(), models, analyzeImage } = {}) {
   });
   app.use('/api/v1/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false }));
   app.use('/api/v1', require('./routes')(models, config, { analyzeImage }));
+  app.use('/api/v1', require('./partner_locations')({ models, config }));
   app.use((_req, res) => res.status(404).json({ success: false, error: { message: 'Route not found' } }));
   app.use((err, req, res, _next) => {
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {

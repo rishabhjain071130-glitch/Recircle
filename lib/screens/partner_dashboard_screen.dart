@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../features/requests/data/recircle_api.dart';
 import '../models/pickup.dart';
@@ -20,6 +21,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen>
   List<Pickup> _eligible = [];
   String? _error;
   bool _loading = false;
+  bool _publishingLocation = false;
 
   @override
   void initState() {
@@ -47,6 +49,66 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen>
       _error = 'Could not load requests. Check the connection and retry.';
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _publishCurrentLocation() async {
+    if (_publishingLocation) return;
+    setState(() => _publishingLocation = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw const LocationServiceDisabledException();
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw PermissionDeniedException('Location permission was denied.');
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      await widget.appState.api.patch('/partners/me/location', {
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your collection location is now visible to nearby customers.'),
+          ),
+        );
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } on LocationServiceDisabledException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Turn on location services and try again.')),
+        );
+      }
+    } on PermissionDeniedException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission is required to publish your collection point.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not publish your current location. Please retry.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _publishingLocation = false);
     }
   }
 
@@ -141,6 +203,17 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen>
     appBar: AppBar(
       title: const ReCircleBrandTitle('Partner Dashboard'),
       actions: [
+        IconButton(
+          onPressed: _publishingLocation ? null : _publishCurrentLocation,
+          icon: _publishingLocation
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.my_location_rounded),
+          tooltip: 'Publish collection location',
+        ),
         IconButton(
           onPressed: widget.appState.logout,
           icon: const Icon(Icons.logout),
