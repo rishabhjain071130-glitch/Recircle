@@ -144,6 +144,7 @@ class AppState extends ChangeNotifier {
     String? notes,
     String? preferredDate,
     String? preferredTime,
+    String? preferredPartnerId,
   }) async {
     final pickupDetails = <String, dynamic>{
       'address': address,
@@ -153,6 +154,9 @@ class AppState extends ChangeNotifier {
     if (preferredDate != null) pickupDetails['preferredDate'] = preferredDate;
     if (preferredTime != null) pickupDetails['preferredTime'] = preferredTime;
     if (notes != null && notes.isNotEmpty) pickupDetails['notes'] = notes;
+    if (preferredPartnerId != null && preferredPartnerId.isNotEmpty) {
+      pickupDetails['preferredPartnerId'] = preferredPartnerId;
+    }
     final result = await api.post('/requests', {
       'item': {
         'category': category,
