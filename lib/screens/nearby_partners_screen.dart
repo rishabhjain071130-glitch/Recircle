@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../features/requests/data/recircle_api.dart';
 import '../providers/app_state.dart';
@@ -17,7 +18,7 @@ class NearbyPartnersScreen extends StatefulWidget {
 }
 
 class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
-  GoogleMapController? _mapController;
+  final MapController _mapController = MapController();
   Position? _position;
   List<Map<String, dynamic>> _partners = const [];
   String? _error;
@@ -40,7 +41,7 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
     try {
       final position = await _getCurrentPosition();
       final result = await widget.appState.api.get(
-        '/partners/nearby?latitude=${position.latitude}&longitude=${position.longitude}&radiusKm=${_radiusKm}',
+        '/partners/nearby?latitude=${position.latitude}&longitude=${position.longitude}&radiusKm=$_radiusKm',
       );
       final items = ((result as List?) ?? const [])
           .whereType<Map>()
@@ -53,7 +54,11 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
         _partners = items;
         _loading = false;
       });
-      await _moveCamera(LatLng(position.latitude, position.longitude));
+
+      _mapController.move(
+        LatLng(position.latitude, position.longitude),
+        13.5,
+      );
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -103,45 +108,74 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
     );
   }
 
-  Future<void> _moveCamera(LatLng target) async {
-    final controller = _mapController;
-    if (controller == null) return;
-    await controller.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(target: target, zoom: 13.5),
-      ),
-    );
-  }
+  List<Marker> get _markers {
+    final markers = <Marker>[];
 
-  Set<Marker> get _markers {
-    return {
-      if (_position != null)
+    if (_position != null) {
+      markers.add(
         Marker(
-          markerId: const MarkerId('customer-location'),
-          position: LatLng(_position!.latitude, _position!.longitude),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
+          point: LatLng(_position!.latitude, _position!.longitude),
+          width: 48,
+          height: 48,
+          child: const Icon(
+            Icons.my_location_rounded,
+            color: AppTheme.primaryGreen,
+            size: 34,
           ),
-          infoWindow: const InfoWindow(title: 'Your location'),
         ),
-      ..._partners.map((partner) {
-        final id = partner['partnerId']?.toString() ?? '';
-        final lat = (partner['latitude'] as num?)?.toDouble();
-        final lng = (partner['longitude'] as num?)?.toDouble();
-        if (id.isEmpty || lat == null || lng == null) {
-          return const Marker(markerId: MarkerId('invalid'));
-        }
-        return Marker(
-          markerId: MarkerId('partner-${id}'),
-          position: LatLng(lat, lng),
-          infoWindow: InfoWindow(
-            title: partner['name']?.toString() ?? 'Collection partner',
-            snippet: '${partner['distanceKm'] ?? '?'} km away',
+      );
+    }
+
+    for (final partner in _partners) {
+      final id = partner['partnerId']?.toString() ?? '';
+      final lat = (partner['latitude'] as num?)?.toDouble();
+      final lng = (partner['longitude'] as num?)?.toDouble();
+      if (id.isEmpty || lat == null || lng == null) continue;
+
+      markers.add(
+        Marker(
+          point: LatLng(lat, lng),
+          width: 52,
+          height: 62,
+          child: GestureDetector(
+            onTap: () => _showPartner(partner),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryGreen,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: const [
+                      BoxShadow(
+                        blurRadius: 8,
+                        offset: Offset(0, 3),
+                        color: Colors.black26,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.recycling_rounded,
+                    color: Colors.white,
+                    size: 21,
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_drop_down_rounded,
+                  color: AppTheme.primaryGreen,
+                  size: 20,
+                ),
+              ],
+            ),
           ),
-          onTap: () => _showPartner(partner),
-        );
-      }),
-    }.where((marker) => marker.markerId.value != 'invalid').toSet();
+        ),
+      );
+    }
+
+    return markers;
   }
 
   void _showPartner(Map<String, dynamic> partner) {
@@ -177,13 +211,11 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
                 child: Text('Service area: ${partner['serviceArea']}'),
               ),
             const SizedBox(height: 16),
-            Row(
+            const Row(
               children: [
-                const Icon(Icons.verified_rounded, color: AppTheme.primaryGreen),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text('Approved ReCircle collection partner'),
-                ),
+                Icon(Icons.verified_rounded, color: AppTheme.primaryGreen),
+                SizedBox(width: 8),
+                Expanded(child: Text('Approved ReCircle collection partner')),
               ],
             ),
             const SizedBox(height: 16),
@@ -206,7 +238,7 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final initialTarget = _position == null
+    final initialCenter = _position == null
         ? const LatLng(27.4924, 77.6737)
         : LatLng(_position!.latitude, _position!.longitude);
 
@@ -223,24 +255,31 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
       ),
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: initialTarget,
-              zoom: 12,
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: initialCenter,
+              initialZoom: 12,
+              minZoom: 3,
+              maxZoom: 18,
             ),
-            myLocationEnabled: _position != null,
-            myLocationButtonEnabled: true,
-            zoomControlsEnabled: false,
-            compassEnabled: true,
-            markers: _markers,
-            onMapCreated: (controller) {
-              _mapController = controller;
-              if (_position != null) {
-                _moveCamera(
-                  LatLng(_position!.latitude, _position!.longitude),
-                );
-              }
-            },
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.recircle',
+                maxNativeZoom: 19,
+              ),
+              MarkerLayer(markers: _markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    'OpenStreetMap contributors',
+                    onTap: () {},
+                  ),
+                  TextSourceAttribution('flutter_map'),
+                ],
+              ),
+            ],
           ),
           Positioned(
             left: 16,
@@ -254,10 +293,7 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.recycling_rounded,
-                      color: AppTheme.primaryGreen,
-                    ),
+                    const Icon(Icons.recycling_rounded, color: AppTheme.primaryGreen),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -281,16 +317,9 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.location_off_outlined,
-                        size: 42,
-                        color: AppTheme.primaryGreen,
-                      ),
+                      const Icon(Icons.location_off_outlined, size: 42, color: AppTheme.primaryGreen),
                       const SizedBox(height: 12),
-                      Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                      ),
+                      Text(_error!, textAlign: TextAlign.center),
                       const SizedBox(height: 16),
                       ElevatedButton.icon(
                         onPressed: _load,
