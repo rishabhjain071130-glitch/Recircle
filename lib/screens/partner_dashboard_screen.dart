@@ -65,7 +65,7 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen>
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        throw const PermissionDeniedException();
+        throw PermissionDeniedException('Location permission was denied.');
       }
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
