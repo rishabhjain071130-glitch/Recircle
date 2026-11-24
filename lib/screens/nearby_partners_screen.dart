@@ -97,7 +97,7 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
     }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      throw const PermissionDeniedException();
+      throw PermissionDeniedException('Location permission was denied.');
     }
 
     return Geolocator.getCurrentPosition(
