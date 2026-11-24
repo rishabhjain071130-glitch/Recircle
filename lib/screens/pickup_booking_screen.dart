@@ -10,12 +10,16 @@ class PickupBookingScreen extends StatefulWidget {
   final AppState appState;
   final String? initialItemName;
   final String? initialCategory;
+  final String? preferredPartnerId;
+  final String? preferredPartnerName;
 
   const PickupBookingScreen({
     super.key,
     required this.appState,
     this.initialItemName,
     this.initialCategory,
+    this.preferredPartnerId,
+    this.preferredPartnerName,
   });
 
   @override
@@ -100,6 +104,7 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
         notes: _notesController.text.trim(),
         preferredDate: _selectedDate,
         preferredTime: _selectedTime,
+        preferredPartnerId: widget.preferredPartnerId,
       );
       if (!mounted) return;
       showDialog(
@@ -233,7 +238,30 @@ class _PickupBookingScreenState extends State<PickupBookingScreen> {
                 'Submitting creates a pickup request for partners to review. A pickup is not confirmed until a partner accepts it.',
                 style: TextStyle(fontSize: 14, color: AppTheme.subtitleGrey),
               ),
-              const SizedBox(height: 24),
+              if (widget.preferredPartnerId != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentLightGreen,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.primaryGreen.withValues(alpha: 0.25)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.verified_rounded, color: AppTheme.primaryGreen),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Pickup partner: ${widget.preferredPartnerName ?? 'Selected collection partner'}',
+                          style: const TextStyle(fontWeight: FontWeight.w700, color: AppTheme.darkText),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
 
               // Step 1: Item Name
               _buildStepHeader('1', 'Select Item Name'),
