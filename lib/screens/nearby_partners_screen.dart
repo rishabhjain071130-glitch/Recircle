@@ -4,10 +4,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../features/requests/data/recircle_api.dart';
+import '../models/partner_profile.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recircle_branding.dart';
-import 'pickup_booking_screen.dart';
+import 'partner_profile_screen.dart';
 
 class NearbyPartnersScreen extends StatefulWidget {
   const NearbyPartnersScreen({super.key, required this.appState});
@@ -56,10 +57,7 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
         _loading = false;
       });
 
-      _mapController.move(
-        LatLng(position.latitude, position.longitude),
-        13.5,
-      );
+      _mapController.move(LatLng(position.latitude, position.longitude), 13.5);
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -180,67 +178,12 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
   }
 
   void _showPartner(Map<String, dynamic> partner) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              partner['name']?.toString() ?? 'Collection partner',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${partner['distanceKm'] ?? '?'} km away',
-              style: const TextStyle(
-                color: AppTheme.primaryGreen,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 10),
-            if ((partner['address']?.toString() ?? '').isNotEmpty)
-              Text('${partner['address']}, ${partner['city'] ?? ''}'),
-            if ((partner['serviceArea']?.toString() ?? '').isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text('Service area: ${partner['serviceArea']}'),
-              ),
-            const SizedBox(height: 16),
-            const Row(
-              children: [
-                Icon(Icons.verified_rounded, color: AppTheme.primaryGreen),
-                SizedBox(width: 8),
-                Expanded(child: Text('Approved ReCircle collection partner')),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => PickupBookingScreen(
-                        appState: widget.appState,
-                        preferredPartnerId: partner['partnerId']?.toString(),
-                        preferredPartnerName: partner['name']?.toString(),
-                      ),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.local_shipping_outlined),
-                label: const Text('Use this partner for pickup'),
-              ),
-            ),
-          ],
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PartnerProfileScreen(
+          appState: widget.appState,
+          partnerId: partner['partnerId']?.toString(),
+          initialProfile: PartnerProfile.fromJson(partner),
         ),
       ),
     );
@@ -300,10 +243,16 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
               borderRadius: BorderRadius.circular(16),
               color: Colors.white,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
-                    const Icon(Icons.recycling_rounded, color: AppTheme.primaryGreen),
+                    const Icon(
+                      Icons.recycling_rounded,
+                      color: AppTheme.primaryGreen,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -327,7 +276,11 @@ class _NearbyPartnersScreenState extends State<NearbyPartnersScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.location_off_outlined, size: 42, color: AppTheme.primaryGreen),
+                      const Icon(
+                        Icons.location_off_outlined,
+                        size: 42,
+                        color: AppTheme.primaryGreen,
+                      ),
                       const SizedBox(height: 12),
                       Text(_error!, textAlign: TextAlign.center),
                       const SizedBox(height: 16),

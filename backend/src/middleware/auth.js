@@ -15,7 +15,7 @@ function auth(config, role, { allowUnapprovedPartner = false } = {}) {
       return unauthorized('Session is invalid or expired');
     }
     try {
-      const user = await req.models.User.findById(payload.sub).select('name email role active phone address city pinCode serviceArea partnerStatus partnerStatusReason partnerAvailable');
+      const user = await req.models.User.findById(payload.sub).select('name email role active phone address city pinCode serviceArea partnerStatus partnerStatusReason partnerAvailable businessName partnerType acceptedCategories createdAt');
       if (!user || !user.active) return unauthorized('Session is invalid or expired');
       if (role && user.role !== role) return res.status(403).json({ success: false, error: { message: 'Forbidden' } });
       if (role === 'partner' && !allowUnapprovedPartner && user.partnerStatus !== 'approved') {

@@ -6,6 +6,7 @@ import '../models/pickup.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recircle_branding.dart';
+import 'partner_profile_screen.dart';
 
 class PartnerDashboardScreen extends StatefulWidget {
   const PartnerDashboardScreen({super.key, required this.appState});
@@ -80,7 +81,9 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Your collection location is now visible to nearby customers.'),
+            content: Text(
+              'Your collection location is now visible to nearby customers.',
+            ),
           ),
         );
       }
@@ -92,19 +95,29 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen>
     } on LocationServiceDisabledException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Turn on location services and try again.')),
+          const SnackBar(
+            content: Text('Turn on location services and try again.'),
+          ),
         );
       }
     } on PermissionDeniedException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permission is required to publish your collection point.')),
+          const SnackBar(
+            content: Text(
+              'Location permission is required to publish your collection point.',
+            ),
+          ),
         );
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not publish your current location. Please retry.')),
+          const SnackBar(
+            content: Text(
+              'Could not publish your current location. Please retry.',
+            ),
+          ),
         );
       }
     } finally {
@@ -203,6 +216,18 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen>
     appBar: AppBar(
       title: const ReCircleBrandTitle('Partner Dashboard'),
       actions: [
+        IconButton(
+          tooltip: 'Partner profile',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => PartnerProfileScreen(
+                appState: widget.appState,
+                ownProfile: true,
+              ),
+            ),
+          ),
+          icon: const Icon(Icons.person_outline),
+        ),
         IconButton(
           onPressed: _publishingLocation ? null : _publishCurrentLocation,
           icon: _publishingLocation

@@ -94,7 +94,51 @@ test('approved partners can publish a location and customers can discover them b
   assert.equal(nearby.status, 200);
   assert.equal(nearby.body.data.length, 1);
   assert.equal(nearby.body.data[0].name, 'Green ReCircle Partner');
+  assert.equal(nearby.body.data[0].partnerStatus, 'approved');
   assert.equal(nearby.body.data[0].distanceKm < 1, true);
+  assert.equal(Object.hasOwn(nearby.body.data[0], 'email'), false);
+  assert.equal(Object.hasOwn(nearby.body.data[0], 'passwordHash'), false);
+});
+
+test('customer partner profile endpoint returns only safe approved profile data', async () => {
+  const partnerTokenValue = await partnerToken();
+  const customer = await customerToken();
+  const partner = await User.findOne({ email: 'map-partner@example.com' });
+  await User.updateOne({ _id: partner.id }, { $set: {
+    businessName: 'Green Loop', partnerType: 'Recycler', acceptedCategories: ['Electronics', 'Batteries'],
+  } });
+  await request(app)
+    .patch('/api/v1/partners/me/location')
+    .set('Authorization', `Bearer ${partnerTokenValue}`)
+    .send({ latitude: 27.4924, longitude: 77.6737 });
+
+  assert.equal((await request(app).get(`/api/v1/partners/${partner.id}`)).status, 401);
+  assert.equal((await request(app).get(`/api/v1/partners/${partner.id}`).set('Authorization', `Bearer ${partnerTokenValue}`)).status, 403);
+  const profile = await request(app).get(`/api/v1/partners/${partner.id}`).set('Authorization', `Bearer ${customer}`);
+  assert.equal(profile.status, 200);
+  assert.equal(profile.body.data.businessName, 'Green Loop');
+  assert.equal(profile.body.data.partnerType, 'Recycler');
+  assert.deepEqual(profile.body.data.acceptedCategories, ['Electronics', 'Batteries']);
+  assert.equal(profile.body.data.partnerStatus, 'approved');
+  assert.equal(profile.body.data.available, true);
+  assert.equal(profile.body.data.latitude, 27.4924);
+  for (const privateField of ['email', 'passwordHash', 'partnerStatusReason', 'role', 'active']) {
+    assert.equal(Object.hasOwn(profile.body.data, privateField), false, `${privateField} must not be public`);
+  }
+});
+
+test('pending and inactive partners are hidden from customer profile and nearby discovery', async () => {
+  const customer = await customerToken();
+  const pending = await User.create({ name: 'Pending', email: 'pending-profile@example.com', passwordHash: 'hash', role: 'partner', partnerStatus: 'pending', partnerAvailable: true });
+  const inactive = await User.create({ name: 'Inactive', email: 'inactive-profile@example.com', passwordHash: 'hash', role: 'partner', partnerStatus: 'approved', active: false, partnerAvailable: true });
+  for (const partner of [pending, inactive]) {
+    await PartnerLocation.create({ partner: partner.id, location: { type: 'Point', coordinates: [77.6737, 27.4924] } });
+    const profile = await request(app).get(`/api/v1/partners/${partner.id}`).set('Authorization', `Bearer ${customer}`);
+    assert.equal(profile.status, 404);
+  }
+  const nearby = await request(app).get('/api/v1/partners/nearby?latitude=27.4924&longitude=77.6737&radiusKm=5').set('Authorization', `Bearer ${customer}`);
+  assert.equal(nearby.status, 200);
+  assert.deepEqual(nearby.body.data, []);
 });
 
 test('unavailable partners are not returned to customers', async () => {
