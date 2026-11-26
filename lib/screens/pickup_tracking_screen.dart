@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/pickup.dart';
+import '../features/requests/data/recircle_api.dart';
 import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recircle_branding.dart';
@@ -21,6 +22,7 @@ class PickupTrackingScreen extends StatefulWidget {
 
 class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
   late Pickup _currentPickup;
+  bool _cancelling = false;
 
   @override
   void initState() {
@@ -48,6 +50,56 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _confirmCancellation() async {
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String?>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel this pickup?'),
+        content: TextField(
+          controller: reasonController,
+          maxLength: 300,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'Reason (optional)',
+            hintText: 'Tell us why you are cancelling',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Keep Pickup'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, reasonController.text),
+            child: const Text('Cancel Pickup'),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+    if (reason == null || !mounted) return;
+    setState(() => _cancelling = true);
+    try {
+      final updated = await widget.appState.cancelRequest(
+        _currentPickup.id,
+        reason: reason,
+      );
+      if (!mounted) return;
+      setState(() => _currentPickup = updated);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Pickup cancelled.')));
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
     }
   }
 
@@ -191,6 +243,24 @@ class _PickupTrackingScreenState extends State<PickupTrackingScreen> {
             ),
 
             const SizedBox(height: 24),
+
+            if (_currentPickup.status == PickupStatus.booked ||
+                _currentPickup.status == PickupStatus.partnerAssigned) ...[
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _cancelling ? null : _confirmCancellation,
+                  icon: _cancelling
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cancel_outlined),
+                  label: Text(_cancelling ? 'Cancelling…' : 'Cancel Pickup'),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
 
             // Timeline Header
             const Text(

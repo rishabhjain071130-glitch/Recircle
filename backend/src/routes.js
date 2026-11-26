@@ -21,6 +21,7 @@ const partnerRegisterSchema = z.object({
 const partnerProfileSchema = partnerRegisterSchema.omit({ email: true, password: true }).extend({ partnerAvailable: z.boolean() }).strict();
 const partnerApprovalSchema = z.object({ status: z.enum(['approved', 'rejected', 'suspended', 'pending']), reason: z.string().trim().max(500).optional() }).strict();
 const partnerRejectSchema = z.object({ reason: z.string().trim().max(500).optional() }).strict();
+const cancellationSchema = z.object({ reason: z.string().trim().max(300).optional() }).strict();
 const createSchema = z.object({
   item: z.object({ category: z.string().trim().min(2).max(60), name: z.string().trim().min(2).max(120), condition: z.string().trim().min(2).max(60), brandModel: z.string().max(120).optional(), quantity: z.number().int().min(1).max(999).default(1), imageReference: z.string().max(500).optional() }).strict(),
   pickup: z.object({ address: z.string().trim().min(5).max(500), contactName: z.string().trim().min(2).max(100), contactPhone: z.string().trim().min(5).max(30), preferredDate: z.string().max(40).optional(), preferredTime: z.string().max(60).optional(), notes: z.string().max(500).optional(), preferredPartnerId: z.string().optional() }).strict(),
@@ -436,6 +437,43 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     try { const data = await models.PickupRequest.find({ customer: req.user.id }).sort({ createdAt: -1 }).limit(100).populate('partner', 'name email phone'); res.json({ success: true, data }); } catch (error) { next(error); }
   });
 
+  router.post('/requests/:id/cancel', auth(config, 'customer'), async (req, res, next) => {
+    try {
+      if (!validRequestId(req, res)) return;
+      const body = validate(cancellationSchema, req.body || {});
+      const note = body.reason || 'Cancelled by customer';
+      const current = await models.PickupRequest.findOne({ _id: req.params.id, customer: req.user.id }).select('status');
+      if (!current) {
+        const exists = await models.PickupRequest.exists({ _id: req.params.id });
+        return res.status(exists ? 403 : 404).json({ success: false, error: { message: exists ? 'Forbidden' : 'Request not found' } });
+      }
+      if (!['Submitted', 'Accepted'].includes(current.status)) {
+        return res.status(409).json({ success: false, error: { message: 'This request can no longer be cancelled' } });
+      }
+      const pickup = await models.PickupRequest.findOneAndUpdate(
+        { _id: req.params.id, customer: req.user.id, status: current.status },
+        { $set: { status: 'Cancelled' }, $push: { history: { from: current.status, to: 'Cancelled', actor: req.user.id, at: new Date(), note } } },
+        { new: true, runValidators: true },
+      );
+      if (!pickup) {
+        return res.status(409).json({ success: false, error: { message: 'This request can no longer be cancelled' } });
+      }
+      const notices = [createNotification(models, pickupNotification({
+        userId: pickup.customer, pickupId: pickup._id, type: 'pickup_cancelled',
+        title: 'Pickup cancelled', message: 'Your pickup request has been cancelled.',
+        eventKey: `${pickup._id}:customer-cancelled`,
+      }))];
+      if (pickup.partner) notices.push(createNotification(models, pickupNotification({
+        userId: pickup.partner, pickupId: pickup._id, type: 'pickup_cancelled',
+        title: 'Pickup cancelled', message: 'A pickup assigned to you was cancelled by the customer.',
+        eventKey: `${pickup._id}:partner-cancelled`,
+      })));
+      await Promise.all(notices);
+      await pickup.populate('partner', 'name email phone');
+      return res.json({ success: true, data: pickup });
+    } catch (error) { next(error); }
+  });
+
   router.get('/partner/requests/eligible', auth(config, 'partner'), async (req, res, next) => {
     try {
       if (!req.user.partnerAvailable) return res.json({ success: true, data: [] });
@@ -455,7 +493,7 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
   });
 
   router.get('/partner/requests/mine', auth(config, 'partner'), async (req, res, next) => {
-    try { const data = await models.PickupRequest.find({ partner: req.user.id }).sort({ updatedAt: -1 }).limit(100); res.json({ success: true, data }); } catch (error) { next(error); }
+    try { const data = await models.PickupRequest.find({ partner: req.user.id, status: { $ne: 'Cancelled' } }).sort({ updatedAt: -1 }).limit(100); res.json({ success: true, data }); } catch (error) { next(error); }
   });
 
   router.post('/partner/requests/:id/reject', auth(config, 'partner'), async (req, res, next) => {

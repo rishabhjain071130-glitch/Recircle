@@ -194,6 +194,24 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<Pickup> cancelRequest(String id, {String? reason}) async {
+    final result = await api.cancelRequest(id, reason: reason);
+    final pickup = Pickup.fromApiJson((result as Map).cast<String, dynamic>());
+    final index = _pickups.indexWhere((item) => item.id == id);
+    if (index >= 0) {
+      _pickups[index] = pickup;
+    } else {
+      _pickups.insert(0, pickup);
+    }
+    notifyListeners();
+    try {
+      await refreshNotifications();
+    } on ApiException {
+      // The cancellation is already saved; notification refresh can be retried later.
+    }
+    return pickup;
+  }
+
   Future<void> refreshNotifications() async {
     if (!isAuthenticated) return;
     loadingNotifications = true;

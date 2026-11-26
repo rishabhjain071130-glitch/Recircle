@@ -116,6 +116,11 @@ class ReCircleApi {
   Future<dynamic> getRequest(String id) =>
       get('/requests/${Uri.encodeComponent(id)}');
 
+  Future<dynamic> cancelRequest(String id, {String? reason}) => post(
+    '/requests/${Uri.encodeComponent(id)}/cancel',
+    {if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim()},
+  );
+
   Future<dynamic> getNotifications({int page = 1, int limit = 50}) =>
       get('/notifications?page=$page&limit=$limit');
 
@@ -267,6 +272,8 @@ class ReCircleApi {
       final code = error is Map ? error['code'] : null;
       final isAnalysisRequest =
           response.request?.url.path.endsWith('/analysis') ?? false;
+      final isCancellationRequest =
+          response.request?.url.path.endsWith('/cancel') ?? false;
       final message = switch (code) {
         'ANALYSIS_RATE_LIMIT' =>
           'Too many image analyses. Please wait and retry.',
@@ -290,7 +297,14 @@ class ReCircleApi {
                 : isAnalysisRequest
                 ? 'Your session expired. Sign in again to analyze this item.'
                 : 'Your session expired. Sign in again to continue.',
-          403 => 'This account cannot analyze images.',
+          403 =>
+            isCancellationRequest
+                ? 'You can only cancel your own pickup request.'
+                : 'This account cannot analyze images.',
+          404 =>
+            isCancellationRequest
+                ? 'This pickup request could not be found.'
+                : 'The requested information could not be found.',
           413 =>
             isAnalysisRequest
                 ? 'This image is too large. Choose an image under 8 MB.'
@@ -308,7 +322,10 @@ class ReCircleApi {
             isAnalysisRequest
                 ? 'Image analysis timed out. Check the connection and retry.'
                 : 'The request timed out. Check the connection and retry.',
-          409 => 'An account with this email already exists. Sign in instead.',
+          409 =>
+            isCancellationRequest
+                ? 'This pickup can no longer be cancelled. Refresh its status.'
+                : 'An account with this email already exists. Sign in instead.',
           >= 500 =>
             isAnalysisRequest
                 ? 'ReCircle could not complete image analysis. Please retry shortly.'
