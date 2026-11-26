@@ -610,3 +610,59 @@ test('customer submission is shared with partner, single claim wins, and transit
   assert.equal(processingComplete.body.data.history.at(-1).actor.toString(), processingComplete.body.data.partner.toString());
   assert.equal(await Notification.countDocuments({ userId: customerId, relatedPickupId: id }), 4);
 });
+
+test('customers can cancel only their own eligible pickups and cancellation notices are idempotent', async () => {
+  const customer = await register('Cancel Customer', 'cancel-customer@example.com');
+  const otherCustomer = await register('Other Customer', 'cancel-other@example.com');
+  const partner = await register('Cancel Partner', 'cancel-partner@example.com', 'partner');
+  const partnerUser = await User.findOne({ email: 'cancel-partner@example.com' });
+  const customerUser = await User.findOne({ email: 'cancel-customer@example.com' });
+  const createPickup = (customerId, status = 'Submitted', partnerId = null) => PickupRequest.create({
+    customer: customerId,
+    item: { category: 'E-Waste', name: 'Laptop', condition: 'Used', quantity: 1 },
+    pickup: { address: '12 Green Street', contactName: 'Customer', contactPhone: '1234567890' },
+    partner: partnerId,
+    status,
+    history: [{ from: null, to: 'Submitted', actor: customerId, note: '' },
+      ...(partnerId ? [{ from: 'Submitted', to: 'Accepted', actor: partnerId, note: '' }] : [])],
+  });
+
+  assert.equal((await request(app).post('/api/v1/requests/000000000000000000000001/cancel').send({})).status, 401);
+  assert.equal((await request(app).post('/api/v1/requests/not-an-id/cancel').set('Authorization', `Bearer ${customer}`).send({})).status, 400);
+
+  const assigned = await createPickup(customerUser.id, 'Accepted', partnerUser.id);
+  const partnerAttempt = await request(app).post(`/api/v1/requests/${assigned.id}/cancel`).set('Authorization', `Bearer ${partner}`).send({});
+  assert.equal(partnerAttempt.status, 403);
+  const otherAttempt = await request(app).post(`/api/v1/requests/${assigned.id}/cancel`).set('Authorization', `Bearer ${otherCustomer}`).send({});
+  assert.equal(otherAttempt.status, 403);
+  const missing = await request(app).post('/api/v1/requests/000000000000000000000001/cancel').set('Authorization', `Bearer ${customer}`).send({});
+  assert.equal(missing.status, 404);
+
+  const cancelled = await request(app).post(`/api/v1/requests/${assigned.id}/cancel`)
+    .set('Authorization', `Bearer ${customer}`).send({ reason: 'Plans changed' });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.data.status, 'Cancelled');
+  assert.deepEqual(cancelled.body.data.history.map((entry) => entry.to), ['Submitted', 'Accepted', 'Cancelled']);
+  assert.equal(cancelled.body.data.history.at(-1).from, 'Accepted');
+  assert.equal(cancelled.body.data.history.at(-1).note, 'Plans changed');
+  assert.equal(await Notification.countDocuments({ userId: customerUser.id, relatedPickupId: assigned.id, type: 'pickup_cancelled' }), 1);
+  assert.equal(await Notification.countDocuments({ userId: partnerUser.id, relatedPickupId: assigned.id, type: 'pickup_cancelled' }), 1);
+  const repeated = await request(app).post(`/api/v1/requests/${assigned.id}/cancel`).set('Authorization', `Bearer ${customer}`).send({});
+  assert.equal(repeated.status, 409);
+  assert.equal(await Notification.countDocuments({ relatedPickupId: assigned.id, type: 'pickup_cancelled' }), 2);
+  assert.equal((await request(app).get('/api/v1/partner/requests/mine').set('Authorization', `Bearer ${partner}`)).body.data.length, 0);
+
+  const unassigned = await createPickup(customerUser.id);
+  assert.equal((await request(app).post(`/api/v1/requests/${unassigned.id}/cancel`).set('Authorization', `Bearer ${customer}`).send({})).status, 200);
+  assert.equal(await Notification.countDocuments({ userId: partnerUser.id, relatedPickupId: unassigned.id, type: 'pickup_cancelled' }), 0);
+
+  for (const status of ['Collected', 'ReceivedForProcessing', 'Completed', 'Cancelled']) {
+    const ineligible = await createPickup(customerUser.id, status);
+    const response = await request(app).post(`/api/v1/requests/${ineligible.id}/cancel`).set('Authorization', `Bearer ${customer}`).send({});
+    assert.equal(response.status, 409, `${status} should not be cancellable`);
+    assert.equal(await Notification.countDocuments({ relatedPickupId: ineligible.id, type: 'pickup_cancelled' }), 0);
+  }
+  const oversized = await request(app).post(`/api/v1/requests/${(await createPickup(customerUser.id)).id}/cancel`)
+    .set('Authorization', `Bearer ${customer}`).send({ reason: 'x'.repeat(301) });
+  assert.equal(oversized.status, 400);
+});

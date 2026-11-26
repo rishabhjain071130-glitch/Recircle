@@ -50,6 +50,63 @@ void main() {
     );
   });
 
+  test(
+    'pickup cancellation uses the authenticated endpoint and bounded reason',
+    () async {
+      late http.Request sent;
+      final api = ReCircleApi(
+        baseUrl: ReCircleApi.productionBaseUrl,
+        storage: _MemorySecureStorage(),
+        client: MockClient((request) async {
+          sent = request;
+          return http.Response(
+            '{"success":true,"data":{"_id":"pickup/one","status":"Cancelled"}}',
+            200,
+            request: request,
+          );
+        }),
+      );
+      await api.saveToken('customer-jwt');
+
+      await api.cancelRequest('pickup/one', reason: 'Plans changed');
+
+      expect(sent.method, 'POST');
+      expect(sent.url.path, '/api/v1/requests/pickup%2Fone/cancel');
+      expect(sent.headers['authorization'], 'Bearer customer-jwt');
+      expect(jsonDecode(sent.body), {'reason': 'Plans changed'});
+    },
+  );
+
+  test(
+    'pickup cancellation errors explain ownership, missing, and closed states',
+    () async {
+      for (final entry in {
+        403: 'You can only cancel your own pickup request.',
+        404: 'This pickup request could not be found.',
+        409: 'This pickup can no longer be cancelled. Refresh its status.',
+      }.entries) {
+        final api = ReCircleApi(
+          baseUrl: ReCircleApi.productionBaseUrl,
+          client: MockClient(
+            (request) async => http.Response(
+              '{"success":false,"error":{"message":"private detail"}}',
+              entry.key,
+              request: request,
+            ),
+          ),
+        );
+        await expectLater(
+          api.cancelRequest('pickup-1'),
+          throwsA(
+            isA<ApiException>()
+                .having((error) => error.message, 'message', entry.value)
+                .having((error) => error.statusCode, 'statusCode', entry.key),
+          ),
+        );
+      }
+    },
+  );
+
   test('debug installs on physical phones default to the hosted API', () {
     expect(
       ReCircleApi.resolveBaseUrl('', debugMode: true),

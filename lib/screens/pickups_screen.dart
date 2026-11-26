@@ -40,7 +40,13 @@ class _PickupsScreenState extends State<PickupsScreen>
   Widget build(BuildContext context) {
     final allPickups = widget.appState.pickups;
     final activePickups = allPickups.where((p) => p.isActive).toList();
-    final completedPickups = allPickups.where((p) => !p.isActive).toList();
+    final pastPickups = allPickups
+        .where(
+          (p) =>
+              p.status == PickupStatus.completed ||
+              p.status == PickupStatus.cancelled,
+        )
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -90,7 +96,7 @@ class _PickupsScreenState extends State<PickupsScreen>
           ),
           tabs: [
             Tab(text: 'Active (${activePickups.length})'),
-            Tab(text: 'Completed (${completedPickups.length})'),
+            Tab(text: 'Past (${pastPickups.length})'),
           ],
         ),
       ),
@@ -118,9 +124,9 @@ class _PickupsScreenState extends State<PickupsScreen>
                   'Submit an item and a collection partner can accept the request.',
                 ),
                 _buildPickupList(
-                  completedPickups,
-                  'No completed pickups yet',
-                  'Completed demo pickups will appear here.',
+                  pastPickups,
+                  'No past pickups yet',
+                  'Completed and cancelled pickups will appear here.',
                 ),
               ],
             ),
