@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../widgets/recircle_branding.dart';
 import 'pickup_booking_screen.dart';
 import 'nearby_partners_screen.dart';
+import 'notifications_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   final AppState appState;
@@ -24,15 +25,51 @@ class HomeScreen extends StatelessWidget {
         titleSpacing: 16,
         title: const ReCircleLogo(width: 122),
         actions: [
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No new notifications'),
-                duration: Duration(seconds: 2),
-              ),
-            ),
-            icon: const Icon(Icons.notifications_none_rounded),
+          AnimatedBuilder(
+            animation: appState,
+            builder: (context, _) {
+              final unread = appState.unreadNotificationCount;
+              return IconButton(
+                tooltip: unread == 0
+                    ? 'Notifications'
+                    : 'Notifications, $unread unread',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => NotificationsScreen(appState: appState),
+                  ),
+                ),
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Icon(Icons.notifications_none_rounded),
+                    if (unread > 0)
+                      Positioned(
+                        right: -7,
+                        top: -6,
+                        child: Container(
+                          constraints: const BoxConstraints(minWidth: 17),
+                          height: 17,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          alignment: Alignment.center,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFC62828),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            unread > 99 ? '99+' : '$unread',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
           IconButton(
             tooltip: 'Profile',
@@ -119,7 +156,8 @@ class HomeScreen extends StatelessWidget {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (_) => NearbyPartnersScreen(appState: appState),
+                        builder: (_) =>
+                            NearbyPartnersScreen(appState: appState),
                       ),
                     ),
                   ),

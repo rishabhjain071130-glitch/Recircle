@@ -5,7 +5,7 @@ const bcrypt = require('bcryptjs');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
-const { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit } = require('../src/models');
+const { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit, Notification } = require('../src/models');
 const { createApp } = require('../src/app');
 const { getConfig, validateConfig } = require('../src/config');
 const { utcTodayInIndia } = require('../src/market_rates');
@@ -41,15 +41,15 @@ before(async () => {
   mongo = await MongoMemoryServer.create({ instance: { dbPath: testDbPath } });
   await mongoose.connect(mongo.getUri());
   providerBehavior = async () => analysisFixture;
-  app = createApp({ config, models: { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit }, analyzeImage: (...args) => providerBehavior(...args) });
-  provisionApp = createApp({ config: provisionConfig, models: { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit }, analyzeImage: (...args) => providerBehavior(...args) });
+  app = createApp({ config, models: { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit, Notification }, analyzeImage: (...args) => providerBehavior(...args) });
+  provisionApp = createApp({ config: provisionConfig, models: { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit, Notification }, analyzeImage: (...args) => providerBehavior(...args) });
 });
 after(async () => {
   await mongoose.disconnect();
   if (mongo) await mongo.stop();
   if (testDbPath) await require('node:fs/promises').rm(testDbPath, { recursive: true, force: true });
 });
-beforeEach(async () => { providerBehavior = async () => analysisFixture; await User.deleteMany({}); await PickupRequest.deleteMany({}); await AnalysisRecord.deleteMany({}); await MarketRate.deleteMany({}); await MarketRateAudit.deleteMany({}); await MarketRateHistory.deleteMany({}); await PartnerApprovalAudit.deleteMany({}); });
+beforeEach(async () => { providerBehavior = async () => analysisFixture; await User.deleteMany({}); await PickupRequest.deleteMany({}); await AnalysisRecord.deleteMany({}); await MarketRate.deleteMany({}); await MarketRateAudit.deleteMany({}); await MarketRateHistory.deleteMany({}); await PartnerApprovalAudit.deleteMany({}); await Notification.deleteMany({}); });
 
 async function register(name, email, role = 'customer') {
   const ip = `198.51.100.${(authTestIp++ % 200) + 1}`;
@@ -422,6 +422,11 @@ test('customer can route a pickup to a selected available partner', async () => 
 
   assert.equal(created.status, 201);
   assert.equal(created.body.data.preferredPartner.toString(), partnerA.id.toString());
+  const assignedInbox = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${tokenA}`);
+  assert.equal(assignedInbox.body.data.items[0].type, 'pickup_assigned');
+  assert.equal(assignedInbox.body.data.items[0].relatedPickupId, created.body.data._id);
+  const unselectedInbox = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${tokenB}`);
+  assert.equal(unselectedInbox.body.data.items.length, 0);
 
   const eligibleA = await request(app)
     .get('/api/v1/partner/requests/eligible')
@@ -440,6 +445,29 @@ test('customer can route a pickup to a selected available partner', async () => 
     .set('Authorization', `Bearer ${tokenA}`);
   assert.equal(accepted.status, 200);
   assert.equal(accepted.body.data.partner.toString(), partnerA.id.toString());
+});
+
+test('declined preferred pickup notifies customer and other eligible partners', async () => {
+  const customerToken = await register('Release Customer', 'release-customer@example.com');
+  const declinedPartner = await register('Declined Partner', 'declined-partner@example.com', 'partner');
+  const otherPartner = await register('Available Partner', 'available-partner@example.com', 'partner');
+  const otherPartnerUser = await User.findOne({ email: 'available-partner@example.com' });
+  const created = await request(app).post('/api/v1/requests').set('Authorization', `Bearer ${customerToken}`).send({
+    item: { category: 'E-Waste', name: 'Tablet', condition: 'Used' },
+    pickup: { address: '12 Green Street', contactName: 'Owner', contactPhone: '+919999999999', preferredPartnerId: (await User.findOne({ email: 'declined-partner@example.com' })).id },
+  });
+  const pickupId = created.body.data._id;
+  assert.equal(created.status, 201);
+
+  const declined = await request(app).post(`/api/v1/partner/requests/${pickupId}/reject`).set('Authorization', `Bearer ${declinedPartner}`).send({ reason: 'Unavailable today' });
+  assert.equal(declined.status, 200);
+  const customerInbox = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${customerToken}`);
+  assert.equal(customerInbox.body.data.items[0].type, 'pickup_released');
+  assert.match(customerInbox.body.data.items[0].message, /available for another partner/);
+  const remainingPartnerInbox = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${otherPartner}`);
+  assert.equal(remainingPartnerInbox.body.data.items[0].type, 'pickup_released');
+  assert.equal(remainingPartnerInbox.body.data.items[0].relatedPickupId, pickupId);
+  assert.equal(await Notification.countDocuments({ userId: otherPartnerUser.id, relatedPickupId: pickupId, type: 'pickup_released' }), 1);
 });
 
 test('admin dashboard, customer directory, and pickup monitor are authorized and data-backed', async () => {
@@ -490,6 +518,41 @@ test('admin dashboard, customer directory, and pickup monitor are authorized and
   assert.equal(pickups.body.data.items[0].item.name, 'Laptop');
 });
 
+test('notifications are authenticated, private, and can be marked read by their owner', async () => {
+  const ownerToken = await register('Owner', 'notification-owner@example.com');
+  const otherToken = await register('Other', 'notification-other@example.com');
+  const owner = await User.findOne({ email: 'notification-owner@example.com' });
+  const other = await User.findOne({ email: 'notification-other@example.com' });
+  const own = await Notification.create({
+    userId: owner.id, type: 'pickup_accepted', title: 'Pickup accepted',
+    message: 'A partner accepted your pickup.', eventKey: 'test:owner',
+  });
+  const theirs = await Notification.create({
+    userId: other.id, type: 'pickup_completed', title: 'Pickup complete',
+    message: 'The pickup process is complete.', eventKey: 'test:other',
+  });
+
+  assert.equal((await request(app).get('/api/v1/notifications')).status, 401);
+  const ownList = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${ownerToken}`);
+  assert.equal(ownList.status, 200);
+  assert.equal(ownList.body.data.items.length, 1);
+  assert.equal(ownList.body.data.items[0].id, own.id);
+  assert.equal(ownList.body.data.unreadCount, 1);
+  assert.equal((await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${otherToken}`)).body.data.items[0].id, theirs.id);
+  assert.equal((await request(app).patch(`/api/v1/notifications/${own.id}/read`)).status, 401);
+  assert.equal((await request(app).patch(`/api/v1/notifications/${theirs.id}/read`).set('Authorization', `Bearer ${ownerToken}`)).status, 404);
+  assert.equal((await Notification.findById(theirs.id)).isRead, false);
+
+  const marked = await request(app).patch(`/api/v1/notifications/${own.id}/read`).set('Authorization', `Bearer ${ownerToken}`);
+  assert.equal(marked.status, 200);
+  assert.equal(marked.body.data.isRead, true);
+  assert.equal((await Notification.findById(own.id)).isRead, true);
+  await Notification.create({ userId: owner.id, type: 'pickup_available', title: 'Available', message: 'A pickup is available.', eventKey: 'test:owner-two' });
+  const allRead = await request(app).patch('/api/v1/notifications/read-all').set('Authorization', `Bearer ${ownerToken}`);
+  assert.equal(allRead.status, 200);
+  assert.equal(allRead.body.data.modifiedCount, 1);
+});
+
 test('customer submission is shared with partner, single claim wins, and transitions are validated', async () => {
   const customer = await register('Riya', 'riya@example.com');
   const partner = await register('Partner One', 'partner@example.com', 'partner');
@@ -505,6 +568,11 @@ test('customer submission is shared with partner, single claim wins, and transit
   assert.equal((await request(app).get('/api/v1/requests/mine').set('Authorization', `Bearer ${partner}`)).status, 403);
   const availableResponse = await request(app).get('/api/v1/partner/requests/eligible').set('Authorization', `Bearer ${partner}`);
   assert.equal(availableResponse.body.data.length, 1);
+  const partnerInbox = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${partner}`);
+  assert.equal(partnerInbox.body.data.items[0].type, 'pickup_available');
+  assert.equal(partnerInbox.body.data.items[0].relatedPickupId, id);
+  const otherPartnerInbox = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${otherPartner}`);
+  assert.equal(otherPartnerInbox.body.data.items[0].type, 'pickup_available');
   assert.equal(Object.hasOwn(availableResponse.body.data[0].pickup, 'address'), false);
   assert.equal(Object.hasOwn(availableResponse.body.data[0].pickup, 'contactPhone'), false);
   const claims = await Promise.all([
@@ -514,11 +582,16 @@ test('customer submission is shared with partner, single claim wins, and transit
   assert.deepEqual(claims.map((claim) => claim.status).sort(), [200, 409]);
   const winner = claims.find((claim) => claim.status === 200);
   assert.ok(winner.body.data.pickup.address);
+  const customerInboxAfterAccept = await request(app).get('/api/v1/notifications').set('Authorization', `Bearer ${customer}`);
+  assert.equal(customerInboxAfterAccept.body.data.items[0].type, 'pickup_accepted');
   const wonToken = winner.body.data.partner.toString() === (await User.findOne({ email: 'partner@example.com' })).id ? partner : otherPartner;
   const invalid = await request(app).patch(`/api/v1/partner/requests/${id}/status`).set('Authorization', `Bearer ${wonToken}`).send({ status: 'Completed' });
   assert.equal(invalid.status, 409);
   const collected = await request(app).patch(`/api/v1/partner/requests/${id}/status`).set('Authorization', `Bearer ${wonToken}`).send({ status: 'Collected', note: 'Collected safely' });
   assert.equal(collected.status, 200);
+  assert.equal((await request(app).patch(`/api/v1/partner/requests/${id}/status`).set('Authorization', `Bearer ${wonToken}`).send({ status: 'Collected' })).status, 409);
+  const customerId = (await User.findOne({ email: 'riya@example.com' })).id;
+  assert.equal(await Notification.countDocuments({ userId: customerId, relatedPickupId: id, type: 'pickup_collected' }), 1);
   const wrongPartnerUpdate = await request(app).patch(`/api/v1/partner/requests/${id}/status`).set('Authorization', `Bearer ${otherPartner === wonToken ? partner : otherPartner}`).send({ status: 'ReceivedForProcessing' });
   assert.equal(wrongPartnerUpdate.status, 404);
   const customerView = await request(app).get(`/api/v1/requests/${id}`).set('Authorization', `Bearer ${customer}`);
@@ -535,4 +608,5 @@ test('customer submission is shared with partner, single claim wins, and transit
   assert.equal(processingComplete.status, 200);
   assert.deepEqual(processingComplete.body.data.history.map((event) => event.to), ['Submitted', 'Accepted', 'Collected', 'ReceivedForProcessing', 'Completed']);
   assert.equal(processingComplete.body.data.history.at(-1).actor.toString(), processingComplete.body.data.partner.toString());
+  assert.equal(await Notification.countDocuments({ userId: customerId, relatedPickupId: id }), 4);
 });

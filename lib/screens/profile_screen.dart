@@ -4,6 +4,7 @@ import '../providers/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/recircle_branding.dart';
 import 'rewards_screen.dart';
+import 'notifications_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final AppState appState;
@@ -242,11 +243,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _ProfileMenuItem(
                   icon: Icons.notifications_none_outlined,
                   title: 'Notifications',
-                  subtitle: 'Notifications are not connected in this demo',
+                  subtitle: 'View pickup updates and activity',
                   onTap: () {
-                    _showInfoDialog(
-                      'Notifications',
-                      'Push notifications are not configured. Check your pickup list to refresh status updates.',
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            NotificationsScreen(appState: widget.appState),
+                      ),
                     );
                   },
                 ),

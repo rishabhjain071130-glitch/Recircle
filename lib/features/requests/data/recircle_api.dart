@@ -113,6 +113,18 @@ class ReCircleApi {
   Future<dynamic> getAnalysisDetail(String id) =>
       get('/analysis/history/${Uri.encodeComponent(id)}');
 
+  Future<dynamic> getRequest(String id) =>
+      get('/requests/${Uri.encodeComponent(id)}');
+
+  Future<dynamic> getNotifications({int page = 1, int limit = 50}) =>
+      get('/notifications?page=$page&limit=$limit');
+
+  Future<dynamic> markNotificationRead(String id) =>
+      patch('/notifications/${Uri.encodeComponent(id)}/read', {});
+
+  Future<dynamic> markAllNotificationsRead() =>
+      patch('/notifications/read-all', {});
+
   Future<dynamic> analyzeImage({
     required Uint8List image,
     required String mimeType,
