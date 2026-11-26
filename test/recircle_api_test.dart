@@ -16,6 +16,40 @@ void main() {
     );
   });
 
+  test('notification API uses the authenticated shared client', () async {
+    final sent = <http.Request>[];
+    final api = ReCircleApi(
+      baseUrl: ReCircleApi.productionBaseUrl,
+      storage: _MemorySecureStorage(),
+      client: MockClient((request) async {
+        sent.add(request);
+        return http.Response(
+          '{"success":true,"data":{"items":[],"modifiedCount":1}}',
+          200,
+          request: request,
+        );
+      }),
+    );
+    await api.saveToken('notification-jwt');
+
+    await api.getNotifications();
+    await api.markNotificationRead('notice/one');
+    await api.markAllNotificationsRead();
+
+    expect(sent.map((request) => request.method), ['GET', 'PATCH', 'PATCH']);
+    expect(sent[0].url.path, '/api/v1/notifications');
+    expect(sent[0].url.queryParameters, {'page': '1', 'limit': '50'});
+    expect(sent[1].url.path, '/api/v1/notifications/notice%2Fone/read');
+    expect(sent[2].url.path, '/api/v1/notifications/read-all');
+    expect(
+      sent.every(
+        (request) =>
+            request.headers['authorization'] == 'Bearer notification-jwt',
+      ),
+      isTrue,
+    );
+  });
+
   test('debug installs on physical phones default to the hosted API', () {
     expect(
       ReCircleApi.resolveBaseUrl('', debugMode: true),

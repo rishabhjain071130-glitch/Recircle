@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const { auth } = require('./middleware/auth');
 const { analysisSchema, GeminiProviderError } = require('./services/gemini_analyzer');
+const { createNotification, pickupNotification } = require('./services/notifications');
 const { makeMarketRateRouter } = require('./market_rates');
 
 const registerSchema = z.object({ name: z.string().trim().min(2).max(100), email: z.string().trim().email().max(254), password: z.string().min(8).max(72) }).strict();
@@ -74,6 +75,25 @@ function escapeRegExp(value) {
 module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
   const router = express.Router();
   router.use((req, _res, next) => { req.models = models; next(); });
+  const notifyEligiblePartners = async (pickup, { type, title, message, event }) => {
+    try {
+      const excludedIds = (pickup.rejectedBy || []).map((id) => id.toString());
+      const partners = await models.User.find({
+        role: 'partner', active: true, partnerStatus: 'approved', partnerAvailable: true,
+        _id: { $nin: excludedIds },
+      }).select('_id').limit(100).lean();
+      await Promise.all(partners.map((partner) => createNotification(models, pickupNotification({
+        userId: partner._id,
+        pickupId: pickup._id,
+        type,
+        title,
+        message,
+        eventKey: `${pickup._id}:${event}:${partner._id}`,
+      }))));
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'notification_recipient_lookup_failure', errorCategory: error.name || 'database_error' }));
+    }
+  };
 
   router.post('/admin/provision', async (req, res, next) => {
     const provisioning = config.adminProvisioningEnabled === true
@@ -238,6 +258,62 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
 
   router.get('/auth/me', auth(config), (req, res) => res.json({ success: true, data: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, ...(req.user.role === 'partner' ? { partnerStatus: req.user.partnerStatus || 'approved', partnerStatusReason: req.user.partnerStatusReason, partnerAvailable: req.user.partnerAvailable, phone: req.user.phone, address: req.user.address, city: req.user.city, pinCode: req.user.pinCode, serviceArea: req.user.serviceArea } : {}) } }));
 
+  router.get('/notifications', auth(config), async (req, res, next) => {
+    try {
+      const query = validate(historyQuerySchema, req.query);
+      const filter = { userId: req.user.id };
+      const [items, total, unreadCount] = await Promise.all([
+        models.Notification.find(filter)
+          .sort({ createdAt: -1, _id: -1 })
+          .skip((query.page - 1) * query.limit)
+          .limit(query.limit)
+          .lean(),
+        models.Notification.countDocuments(filter),
+        models.Notification.countDocuments({ ...filter, isRead: false }),
+      ]);
+      res.json({
+        success: true,
+        data: {
+          items: items.map((item) => ({
+            id: item._id.toString(),
+            type: item.type,
+            title: item.title,
+            message: item.message,
+            relatedPickupId: item.relatedPickupId?.toString() || null,
+            relatedRequestId: item.relatedPickupId?.toString() || null,
+            isRead: item.isRead,
+            createdAt: item.createdAt,
+          })),
+          unreadCount,
+          pagination: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) },
+        },
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.patch('/notifications/read-all', auth(config), async (req, res, next) => {
+    try {
+      const result = await models.Notification.updateMany(
+        { userId: req.user.id, isRead: false },
+        { $set: { isRead: true } },
+      );
+      res.json({ success: true, data: { modifiedCount: result.modifiedCount } });
+    } catch (error) { next(error); }
+  });
+
+  router.patch('/notifications/:id/read', auth(config), async (req, res, next) => {
+    try {
+      if (!validRequestId(req, res)) return;
+      const notification = await models.Notification.findOneAndUpdate(
+        { _id: req.params.id, userId: req.user.id },
+        { $set: { isRead: true } },
+        { new: true },
+      ).lean();
+      if (!notification) return res.status(404).json({ success: false, error: { message: 'Notification not found' } });
+      res.json({ success: true, data: { id: notification._id.toString(), isRead: notification.isRead } });
+    } catch (error) { next(error); }
+  });
+
   router.get('/admin/partners', auth(config, 'admin'), async (req, res, next) => {
     try {
       const status = req.query.status ? validate(z.object({ status: z.enum(['pending', 'approved', 'rejected', 'suspended']) }).strict(), { status: req.query.status }).status : undefined;
@@ -335,6 +411,23 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
         status: 'Submitted',
         history: [{ from: null, to: 'Submitted', actor: req.user.id, at: new Date() }],
       });
+      if (preferredPartnerId) {
+        await createNotification(models, pickupNotification({
+          userId: preferredPartnerId,
+          pickupId: request._id,
+          type: 'pickup_assigned',
+          title: 'Preferred pickup assigned',
+          message: 'A customer selected you for a pickup request.',
+          eventKey: `${request._id}:preferred-assignment:${preferredPartnerId}`,
+        }));
+      } else {
+        await notifyEligiblePartners(request, {
+          type: 'pickup_available',
+          title: 'New pickup available',
+          message: 'A new pickup request is available to review.',
+          event: 'pickup-available',
+        });
+      }
       res.status(201).json({ success: true, data: request });
     } catch (error) { next(error); }
   });
@@ -369,6 +462,13 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     try {
       if (!validRequestId(req, res)) return;
       const body = validate(partnerRejectSchema, req.body || {});
+      const beforeDecline = await models.PickupRequest.findOne({
+        _id: req.params.id,
+        status: 'Submitted',
+        partner: null,
+        rejectedBy: { $ne: req.user.id },
+      }).select('preferredPartner');
+      if (!beforeDecline) return res.status(409).json({ success: false, error: { message: 'Request is no longer available to decline' } });
       const result = await models.PickupRequest.updateOne(
         { _id: req.params.id, status: 'Submitted', partner: null, rejectedBy: { $ne: req.user.id } },
         {
@@ -378,6 +478,23 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
         },
       );
       if (result.modifiedCount !== 1) return res.status(409).json({ success: false, error: { message: 'Request is no longer available to decline' } });
+      const pickup = await models.PickupRequest.findById(req.params.id);
+      if (beforeDecline.preferredPartner) {
+        await createNotification(models, pickupNotification({
+          userId: pickup.customer,
+          pickupId: pickup._id,
+          type: 'pickup_released',
+          title: 'Pickup returned to the partner pool',
+          message: 'A partner declined your request. It is available for another partner to accept.',
+          eventKey: `${pickup._id}:preferred-partner-declined:${req.user.id}`,
+        }));
+      }
+      await notifyEligiblePartners(pickup, {
+        type: 'pickup_released',
+        title: 'Pickup available again',
+        message: 'A pickup request has returned to the partner pool.',
+        event: 'pickup-released',
+      });
       res.json({ success: true, data: { id: req.params.id, declined: true } });
     } catch (error) { next(error); }
   });
@@ -397,7 +514,16 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
       if (!validRequestId(req, res)) return;
       const result = await models.PickupRequest.updateOne({ _id: req.params.id, status: 'Submitted', partner: null, rejectedBy: { $ne: req.user.id } }, { $set: { partner: req.user.id, status: 'Accepted' }, $push: { history: { from: 'Submitted', to: 'Accepted', actor: req.user.id, at: new Date() } } });
       if (result.modifiedCount !== 1) return res.status(409).json({ success: false, error: { message: 'Request is no longer available' } });
-      res.json({ success: true, data: await models.PickupRequest.findById(req.params.id) });
+      const pickup = await models.PickupRequest.findById(req.params.id);
+      await createNotification(models, pickupNotification({
+        userId: pickup.customer,
+        pickupId: pickup._id,
+        type: 'pickup_accepted',
+        title: 'Pickup accepted',
+        message: `${req.user.name} accepted your pickup request.`,
+        eventKey: `${pickup._id}:accepted`,
+      }));
+      res.json({ success: true, data: pickup });
     } catch (error) { next(error); }
   });
 
@@ -423,6 +549,27 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
       if (allowed[request.status] !== body.status) return res.status(409).json({ success: false, error: { message: 'Status transition is not permitted' } });
       const result = await models.PickupRequest.updateOne({ _id: request.id, partner: req.user.id, status: request.status }, { $set: { status: body.status }, $push: { history: { from: request.status, to: body.status, actor: req.user.id, at: new Date(), note: body.note || '' } } });
       if (result.modifiedCount !== 1) return res.status(409).json({ success: false, error: { message: 'Request changed; refresh and try again' } });
+      const notificationByStatus = {
+        Collected: {
+          type: 'pickup_collected', title: 'Item collected',
+          message: 'Your item was marked as collected by the partner.',
+        },
+        ReceivedForProcessing: {
+          type: 'pickup_processing', title: 'Received for processing',
+          message: 'The partner marked your item as received for processing.',
+        },
+        Completed: {
+          type: 'pickup_completed', title: 'Pickup process completed',
+          message: 'The partner marked the pickup process as complete.',
+        },
+      };
+      const notice = notificationByStatus[body.status];
+      await createNotification(models, pickupNotification({
+        userId: request.customer,
+        pickupId: request._id,
+        ...notice,
+        eventKey: `${request._id}:${notice.type}`,
+      }));
       res.json({ success: true, data: await models.PickupRequest.findById(request.id) });
     } catch (error) { next(error); }
   });

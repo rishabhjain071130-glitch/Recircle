@@ -5,6 +5,7 @@ import '../models/pickup.dart';
 import '../models/impact_stats.dart';
 import '../models/ewaste_weight_estimates.dart';
 import '../models/reuse_idea.dart';
+import '../models/app_notification.dart';
 import '../features/requests/data/recircle_api.dart';
 
 class AppState extends ChangeNotifier {
@@ -12,11 +13,15 @@ class AppState extends ChangeNotifier {
 
   User _user = User.defaultUser;
   final List<Pickup> _pickups = [];
+  final List<AppNotification> _notifications = [];
+  int _unreadNotificationCount = 0;
   final ReCircleApi api;
   bool sessionReady = false;
   bool loadingRequests = false;
   String? currentRole;
   String? requestError;
+  bool loadingNotifications = false;
+  String? notificationError;
   bool get isAuthenticated => currentRole != null;
   bool get isPartner => currentRole == 'partner';
   bool get isAdmin => currentRole == 'admin';
@@ -32,6 +37,8 @@ class AppState extends ChangeNotifier {
 
   User get user => _user;
   List<Pickup> get pickups => List.unmodifiable(_pickups);
+  List<AppNotification> get notifications => List.unmodifiable(_notifications);
+  int get unreadNotificationCount => _unreadNotificationCount;
   ImpactStats get impactStats => _impactStats.copyWith(
     pickupsCompleted: _pickups
         .where((pickup) => pickup.status == PickupStatus.completed)
@@ -53,6 +60,15 @@ class AppState extends ChangeNotifier {
       requestError = error.message;
       if (error.statusCode == 401) await logout();
     } finally {
+      if (isAuthenticated) {
+        try {
+          await refreshNotifications();
+        } on ApiException {
+          // Notifications are optional when the server is temporarily offline.
+        } catch (_) {
+          // Keep restored authentication if a notification response is malformed.
+        }
+      }
       sessionReady = true;
       notifyListeners();
     }
@@ -68,6 +84,13 @@ class AppState extends ChangeNotifier {
     } on ApiException {
       /* Keep a valid session when the request list is temporarily offline. */
     }
+    try {
+      await refreshNotifications();
+    } on ApiException {
+      /* Keep a valid session when notifications are temporarily offline. */
+    } catch (_) {
+      /* Keep a valid session if notification data cannot be parsed. */
+    }
     notifyListeners();
   }
 
@@ -80,6 +103,13 @@ class AppState extends ChangeNotifier {
       await refreshRequests();
     } on ApiException {
       /* Keep a valid session when the request list is temporarily offline. */
+    }
+    try {
+      await refreshNotifications();
+    } on ApiException {
+      /* Keep a valid session when notifications are temporarily offline. */
+    } catch (_) {
+      /* Keep a valid session if notification data cannot be parsed. */
     }
     notifyListeners();
   }
@@ -98,9 +128,12 @@ class AppState extends ChangeNotifier {
     await api.clearToken();
     currentRole = null;
     _pickups.clear();
+    _notifications.clear();
+    _unreadNotificationCount = 0;
     _impactStats = const ImpactStats();
     _rewardActivities.clear();
     requestError = null;
+    notificationError = null;
     notifyListeners();
   }
 
@@ -125,12 +158,98 @@ class AppState extends ChangeNotifier {
       if (error.statusCode == 401) {
         currentRole = null;
         _pickups.clear();
+        _notifications.clear();
+        _unreadNotificationCount = 0;
       }
       rethrow;
     } finally {
       loadingRequests = false;
       notifyListeners();
     }
+  }
+
+  Future<Pickup?> refreshRequest(String id) async {
+    try {
+      final result = await api.getRequest(id);
+      final pickup = Pickup.fromApiJson(
+        (result as Map).cast<String, dynamic>(),
+      );
+      final index = _pickups.indexWhere((item) => item.id == id);
+      if (index >= 0) {
+        _pickups[index] = pickup;
+      } else {
+        _pickups.insert(0, pickup);
+      }
+      notifyListeners();
+      return pickup;
+    } on ApiException catch (error) {
+      if (error.statusCode == 401) {
+        currentRole = null;
+        _pickups.clear();
+        _notifications.clear();
+        _unreadNotificationCount = 0;
+      }
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> refreshNotifications() async {
+    if (!isAuthenticated) return;
+    loadingNotifications = true;
+    notificationError = null;
+    notifyListeners();
+    try {
+      final result = await api.getNotifications();
+      final data = (result as Map).cast<String, dynamic>();
+      final items = (data['items'] as List?) ?? const [];
+      _notifications
+        ..clear()
+        ..addAll(
+          items.whereType<Map>().map(
+            (item) => AppNotification.fromJson(item.cast<String, dynamic>()),
+          ),
+        );
+      final unreadCount = data['unreadCount'];
+      _unreadNotificationCount = unreadCount is num
+          ? unreadCount.toInt()
+          : _notifications.where((notification) => !notification.isRead).length;
+    } on ApiException catch (error) {
+      notificationError = error.message;
+      if (error.statusCode == 401) {
+        currentRole = null;
+        _notifications.clear();
+        _unreadNotificationCount = 0;
+      }
+      rethrow;
+    } catch (_) {
+      notificationError = 'Could not load notifications. Please retry.';
+      rethrow;
+    } finally {
+      loadingNotifications = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> markNotificationRead(String id) async {
+    await api.markNotificationRead(id);
+    final index = _notifications.indexWhere((item) => item.id == id);
+    if (index >= 0 && !_notifications[index].isRead) {
+      _notifications[index] = _notifications[index].copyWith(isRead: true);
+      _unreadNotificationCount = (_unreadNotificationCount - 1)
+          .clamp(0, 1 << 31)
+          .toInt();
+      notifyListeners();
+    }
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    await api.markAllNotificationsRead();
+    for (var index = 0; index < _notifications.length; index++) {
+      _notifications[index] = _notifications[index].copyWith(isRead: true);
+    }
+    _unreadNotificationCount = 0;
+    notifyListeners();
   }
 
   Future<Pickup> createRequest({

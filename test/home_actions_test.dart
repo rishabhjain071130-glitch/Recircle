@@ -28,6 +28,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byTooltip('Notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('You’re all caught up'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('Book Pickup'));
     await tester.pumpAndSettle();
     expect(find.text('Book Recycling Pickup'), findsOneWidget);

@@ -96,6 +96,20 @@ const partnerApprovalAuditSchema = new mongoose.Schema({
   reason: { type: String, maxlength: 500, default: '' },
 }, { timestamps: true });
 partnerApprovalAuditSchema.index({ partner: 1, createdAt: -1 });
+const notificationSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, required: true, enum: [
+    'pickup_available', 'pickup_assigned', 'pickup_released',
+    'pickup_accepted', 'pickup_collected', 'pickup_processing',
+    'pickup_completed', 'pickup_cancelled',
+  ] },
+  title: { type: String, required: true, trim: true, maxlength: 100 },
+  message: { type: String, required: true, trim: true, maxlength: 300 },
+  relatedPickupId: { type: mongoose.Schema.Types.ObjectId, ref: 'PickupRequest', default: null },
+  eventKey: { type: String, required: true, unique: true },
+  isRead: { type: Boolean, default: false, required: true },
+}, { timestamps: true });
+notificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
 analysisRecordSchema.index({ user: 1, createdAt: -1 });
 pickupSchema.index({ customer: 1, createdAt: -1 });
 pickupSchema.index({ partner: 1, status: 1, updatedAt: -1 });
@@ -108,4 +122,5 @@ const MarketRate = mongoose.models.MarketRate || mongoose.model('MarketRate', ma
 const MarketRateAudit = mongoose.models.MarketRateAudit || mongoose.model('MarketRateAudit', marketRateAuditSchema);
 const MarketRateHistory = mongoose.models.MarketRateHistory || mongoose.model('MarketRateHistory', marketRateHistorySchema);
 const PartnerApprovalAudit = mongoose.models.PartnerApprovalAudit || mongoose.model('PartnerApprovalAudit', partnerApprovalAuditSchema);
-module.exports = { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit };
+const Notification = mongoose.models.Notification || mongoose.model('Notification', notificationSchema);
+module.exports = { User, PickupRequest, AnalysisRecord, MarketRate, MarketRateAudit, MarketRateHistory, PartnerApprovalAudit, Notification };
