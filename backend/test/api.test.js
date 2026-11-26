@@ -327,10 +327,13 @@ test('partner registration is pending until an authenticated admin approves it',
   const registration = await request(app).post('/api/v1/auth/partner-register').send({
     name: 'New Partner', email: 'new-partner@example.com', phone: '+911234567890', password: 'secure-pass-123',
     address: '14 Green Street', city: 'Delhi', pinCode: '110001', serviceArea: 'Central Delhi',
+    businessName: 'Green Loop', partnerType: 'Recycler', acceptedCategories: ['Electronics', 'Batteries'],
   });
   assert.equal(registration.status, 201);
   assert.equal(registration.body.data.user.role, 'partner');
   assert.equal(registration.body.data.user.partnerStatus, 'pending');
+  assert.equal(registration.body.data.user.businessName, 'Green Loop');
+  assert.deepEqual(registration.body.data.user.acceptedCategories, ['Electronics', 'Batteries']);
   const token = registration.body.data.token;
   const partner = await User.findOne({ email: 'new-partner@example.com' }).select('+passwordHash');
   assert.notEqual(partner.passwordHash, 'secure-pass-123');
@@ -346,6 +349,18 @@ test('partner registration is pending until an authenticated admin approves it',
   const approved = await request(app).patch(`/api/v1/admin/partners/${partner.id}/status`).set('Authorization', `Bearer ${adminToken}`).send({ status: 'approved' });
   assert.equal(approved.status, 200);
   assert.equal(approved.body.data.partnerStatus, 'approved');
+  const updatedProfile = await request(app).patch('/api/v1/partner/profile').set('Authorization', `Bearer ${token}`).send({
+    name: partner.name, phone: partner.phone, address: partner.address, city: partner.city, pinCode: partner.pinCode,
+    serviceArea: partner.serviceArea, businessName: 'Green Loop Central', partnerType: 'Recycler',
+    acceptedCategories: ['Electronics', 'Batteries'], partnerAvailable: true,
+  });
+  assert.equal(updatedProfile.status, 200);
+  assert.equal(updatedProfile.body.data.businessName, 'Green Loop Central');
+  assert.equal(updatedProfile.body.data.partnerStatus, 'approved');
+  assert.equal((await request(app).patch('/api/v1/partner/profile').set('Authorization', `Bearer ${token}`).send({
+    name: partner.name, phone: partner.phone, address: partner.address, city: partner.city, pinCode: partner.pinCode,
+    serviceArea: partner.serviceArea, partnerAvailable: true, partnerStatus: 'rejected',
+  })).status, 400);
   assert.equal((await request(app).get('/api/v1/partner/requests/eligible').set('Authorization', `Bearer ${token}`)).status, 200);
   assert.equal(await PartnerApprovalAudit.countDocuments({ partner: partner.id, to: 'approved' }), 1);
 });

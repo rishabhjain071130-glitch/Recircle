@@ -17,6 +17,9 @@ const partnerRegisterSchema = z.object({
   phone: z.string().trim().min(7).max(30), password: z.string().min(8).max(72),
   address: z.string().trim().min(5).max(500), city: z.string().trim().min(2).max(100),
   pinCode: z.string().trim().regex(/^[A-Za-z0-9 -]{3,12}$/), serviceArea: z.string().trim().min(2).max(200),
+  businessName: z.string().trim().max(120).optional(),
+  partnerType: z.enum(['', 'Collector', 'Recycler', 'Refurbisher', 'Reuse Center']).optional(),
+  acceptedCategories: z.array(z.enum(['Electronics', 'Computers', 'Mobile phones', 'Batteries', 'Appliances', 'Cables'])).max(6).optional(),
 }).strict();
 const partnerProfileSchema = partnerRegisterSchema.omit({ email: true, password: true }).extend({ partnerAvailable: z.boolean() }).strict();
 const partnerApprovalSchema = z.object({ status: z.enum(['approved', 'rejected', 'suspended', 'pending']), reason: z.string().trim().max(500).optional() }).strict();
@@ -235,7 +238,7 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     try {
       const body = validate(partnerRegisterSchema, req.body);
       const user = await models.User.create({ ...body, email: body.email.toLowerCase(), passwordHash: await bcrypt.hash(body.password, 12), role: 'partner', partnerStatus: 'pending', partnerAvailable: false });
-      res.status(201).json({ success: true, data: { token: tokenFor(user, config), user: { id: user.id, name: user.name, email: user.email, role: user.role, partnerStatus: user.partnerStatus, partnerStatusReason: user.partnerStatusReason, partnerAvailable: user.partnerAvailable, phone: user.phone, address: user.address, city: user.city, pinCode: user.pinCode, serviceArea: user.serviceArea } } });
+      res.status(201).json({ success: true, data: { token: tokenFor(user, config), user: { id: user.id, name: user.name, email: user.email, role: user.role, partnerStatus: user.partnerStatus, partnerStatusReason: user.partnerStatusReason, partnerAvailable: user.partnerAvailable, phone: user.phone, address: user.address, city: user.city, pinCode: user.pinCode, serviceArea: user.serviceArea, businessName: user.businessName, partnerType: user.partnerType, acceptedCategories: user.acceptedCategories, createdAt: user.createdAt } } });
     } catch (error) { if (error.code === 11000) return res.status(409).json({ success: false, error: { message: 'An account with this email already exists' } }); next(error); }
   });
 
@@ -244,7 +247,7 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
       const body = validate(loginSchema, req.body);
       const user = await models.User.findOne({ email: body.email.toLowerCase() }).select('+passwordHash');
       if (!user || !user.active || !(await bcrypt.compare(body.password, user.passwordHash))) return res.status(401).json({ success: false, error: { message: 'Email or password is incorrect' } });
-      res.json({ success: true, data: { token: tokenFor(user, config), user: { id: user.id, name: user.name, email: user.email, role: user.role, ...(user.role === 'partner' ? { partnerStatus: user.partnerStatus || 'approved', partnerStatusReason: user.partnerStatusReason, partnerAvailable: user.partnerAvailable, phone: user.phone, address: user.address, city: user.city, pinCode: user.pinCode, serviceArea: user.serviceArea } : {}) } } });
+      res.json({ success: true, data: { token: tokenFor(user, config), user: { id: user.id, name: user.name, email: user.email, role: user.role, ...(user.role === 'partner' ? { partnerStatus: user.partnerStatus || 'approved', partnerStatusReason: user.partnerStatusReason, partnerAvailable: user.partnerAvailable, phone: user.phone, address: user.address, city: user.city, pinCode: user.pinCode, serviceArea: user.serviceArea, businessName: user.businessName, partnerType: user.partnerType, acceptedCategories: user.acceptedCategories, createdAt: user.createdAt } : {}) } } });
     } catch (error) { next(error); }
   });
 
@@ -257,7 +260,7 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     } catch (error) { if (error.code === 11000) return res.status(409).json({ success: false, error: { message: 'An account with this email already exists' } }); next(error); }
   });
 
-  router.get('/auth/me', auth(config), (req, res) => res.json({ success: true, data: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, ...(req.user.role === 'partner' ? { partnerStatus: req.user.partnerStatus || 'approved', partnerStatusReason: req.user.partnerStatusReason, partnerAvailable: req.user.partnerAvailable, phone: req.user.phone, address: req.user.address, city: req.user.city, pinCode: req.user.pinCode, serviceArea: req.user.serviceArea } : {}) } }));
+  router.get('/auth/me', auth(config), (req, res) => res.json({ success: true, data: { id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, ...(req.user.role === 'partner' ? { partnerStatus: req.user.partnerStatus || 'approved', partnerStatusReason: req.user.partnerStatusReason, partnerAvailable: req.user.partnerAvailable, phone: req.user.phone, address: req.user.address, city: req.user.city, pinCode: req.user.pinCode, serviceArea: req.user.serviceArea, businessName: req.user.businessName, partnerType: req.user.partnerType, acceptedCategories: req.user.acceptedCategories, createdAt: req.user.createdAt } : {}) } }));
 
   router.get('/notifications', auth(config), async (req, res, next) => {
     try {
@@ -537,12 +540,12 @@ module.exports = (models = {}, config = {}, { analyzeImage } = {}) => {
     } catch (error) { next(error); }
   });
 
-  router.get('/partner/profile', auth(config, 'partner', { allowUnapprovedPartner: true }), (req, res) => res.json({ success: true, data: { id: req.user.id, name: req.user.name, email: req.user.email, phone: req.user.phone, address: req.user.address, city: req.user.city, pinCode: req.user.pinCode, serviceArea: req.user.serviceArea, partnerStatus: req.user.partnerStatus || 'approved', partnerStatusReason: req.user.partnerStatusReason, partnerAvailable: req.user.partnerAvailable } }));
+  router.get('/partner/profile', auth(config, 'partner', { allowUnapprovedPartner: true }), (req, res) => res.json({ success: true, data: { id: req.user.id, name: req.user.name, email: req.user.email, phone: req.user.phone, address: req.user.address, city: req.user.city, pinCode: req.user.pinCode, serviceArea: req.user.serviceArea, partnerStatus: req.user.partnerStatus || 'approved', partnerStatusReason: req.user.partnerStatusReason, partnerAvailable: req.user.partnerAvailable, businessName: req.user.businessName, partnerType: req.user.partnerType, acceptedCategories: req.user.acceptedCategories, createdAt: req.user.createdAt } }));
 
   router.patch('/partner/profile', auth(config, 'partner', { allowUnapprovedPartner: true }), async (req, res, next) => {
     try {
       const body = validate(partnerProfileSchema, req.body);
-      const profile = await models.User.findOneAndUpdate({ _id: req.user.id, role: 'partner' }, { $set: { name: body.name, phone: body.phone, address: body.address, city: body.city, pinCode: body.pinCode, serviceArea: body.serviceArea, partnerAvailable: req.user.partnerStatus === 'approved' && body.partnerAvailable } }, { new: true }).select('name email phone address city pinCode serviceArea partnerStatus partnerStatusReason partnerAvailable');
+      const profile = await models.User.findOneAndUpdate({ _id: req.user.id, role: 'partner' }, { $set: { name: body.name, phone: body.phone, address: body.address, city: body.city, pinCode: body.pinCode, serviceArea: body.serviceArea, businessName: body.businessName || '', partnerType: body.partnerType || '', acceptedCategories: body.acceptedCategories || [], partnerAvailable: req.user.partnerStatus === 'approved' && body.partnerAvailable } }, { new: true }).select('name email phone address city pinCode serviceArea partnerStatus partnerStatusReason partnerAvailable businessName partnerType acceptedCategories createdAt');
       res.json({ success: true, data: profile });
     } catch (error) { next(error); }
   });

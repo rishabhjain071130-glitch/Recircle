@@ -116,6 +116,14 @@ class ReCircleApi {
   Future<dynamic> getRequest(String id) =>
       get('/requests/${Uri.encodeComponent(id)}');
 
+  Future<dynamic> getPartnerProfile(String id) =>
+      get('/partners/${Uri.encodeComponent(id)}');
+
+  Future<dynamic> getOwnPartnerProfile() => get('/partner/profile');
+
+  Future<dynamic> updateOwnPartnerProfile(Map<String, dynamic> profile) =>
+      patch('/partner/profile', profile);
+
   Future<dynamic> cancelRequest(String id, {String? reason}) => post(
     '/requests/${Uri.encodeComponent(id)}/cancel',
     {if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim()},

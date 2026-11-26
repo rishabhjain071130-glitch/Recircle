@@ -135,12 +135,17 @@ module.exports = ({ models, config }) => {
             _id: 0,
             partnerId: '$partner._id',
             name: '$partner.name',
+            businessName: '$partner.businessName',
+            partnerType: '$partner.partnerType',
+            acceptedCategories: '$partner.acceptedCategories',
+            partnerStatus: '$partner.partnerStatus',
             phone: '$partner.phone',
             address: '$partner.address',
             city: '$partner.city',
             pinCode: '$partner.pinCode',
             serviceArea: '$partner.serviceArea',
             available: '$partner.partnerAvailable',
+            registeredAt: '$partner.createdAt',
             latitude: { $arrayElemAt: ['$location.coordinates', 1] },
             longitude: { $arrayElemAt: ['$location.coordinates', 0] },
             distanceMeters: 1,
@@ -158,6 +163,43 @@ module.exports = ({ models, config }) => {
           partnerId: partner.partnerId.toString(),
           distanceKm: Number((partner.distanceMeters / 1000).toFixed(1)),
         })),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.get('/partners/:id', auth(config, 'customer'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ success: false, error: { message: 'Invalid partner ID' } });
+      }
+      const partner = await models.User.findOne({
+        _id: req.params.id, role: 'partner', active: true, partnerStatus: 'approved',
+      }).select('name businessName partnerType acceptedCategories phone address city pinCode serviceArea partnerStatus partnerAvailable createdAt').lean();
+      if (!partner) return res.status(404).json({ success: false, error: { message: 'Approved partner not found' } });
+      const location = await PartnerLocation.findOne({ partner: partner._id }).select('location').lean();
+      return res.json({
+        success: true,
+        data: {
+          id: partner._id.toString(),
+          name: partner.name,
+          businessName: partner.businessName || '',
+          partnerType: partner.partnerType || '',
+          acceptedCategories: partner.acceptedCategories || [],
+          phone: partner.phone,
+          address: partner.address,
+          city: partner.city,
+          pinCode: partner.pinCode,
+          serviceArea: partner.serviceArea,
+          partnerStatus: partner.partnerStatus,
+          available: partner.partnerAvailable,
+          registeredAt: partner.createdAt,
+          ...(location ? {
+            latitude: location.location.coordinates[1],
+            longitude: location.location.coordinates[0],
+          } : {}),
+        },
       });
     } catch (error) {
       return next(error);
